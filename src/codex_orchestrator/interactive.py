@@ -1,14 +1,24 @@
 """Terminal prompts for turning a project idea into a saved brief."""
 
 import json
+from graphlib import TopologicalSorter
 from pathlib import Path
+from typing import Self
 from uuid import uuid4
 
 import typer
+from pydantic import model_validator
 
 from codex_orchestrator.codex import codex_response
 from codex_orchestrator.models import Text
-from codex_orchestrator.session import Answer, Brief, PlanningSession, SessionData
+from codex_orchestrator.session import (
+    Answer,
+    Brief,
+    DraftPlan,
+    PlanningSession,
+    Revision,
+    SessionData,
+)
 
 READ_ONLY = (
     "Use only read-only project inspection when needed. "
@@ -21,6 +31,17 @@ READ_ONLY = (
 class IntakeReply(SessionData):
     brief: Brief
     question: Text | None
+
+
+class PlanningReply(SessionData):
+    question: Text | None
+    plan: DraftPlan | None
+
+    @model_validator(mode="after")
+    def validate_choice(self) -> Self:
+        if (self.question is None) == (self.plan is None):
+            raise ValueError("Return either a question or a plan")
+        return self
 
 
 def start_session(
@@ -65,44 +86,135 @@ def run_session(session: PlanningSession, path: Path) -> None:
     typer.echo(f"Session: {path}")
     typer.echo("Type :save at a prompt to save and exit.")
     try:
-        while session.phase == "intake":
+        while session.phase in ("intake", "planning"):
             if session.pending_question is not None:
-                answer = ask(f"{session.pending_question} (or :plan to draft now)")
-                if answer is None:
+                if not answer_question(session, path):
                     return
-                if answer == ":plan":
-                    session.finish_intake = True
-                else:
-                    session.answers.append(Answer(prompt=session.pending_question, response=answer))
-                session.pending_question = None
-                session.save(path)
-                continue
-
-            typer.echo("Preparing the brief...", err=True)
-            data = {
-                "answers": [answer.model_dump() for answer in session.answers],
-                "previous_brief": session.brief.model_dump() if session.brief else None,
-                "draft_now": session.finish_intake,
-            }
-            reply = codex_response(
-                Path(session.project),
-                READ_ONLY
-                + " Gather a brief for the requested project. Ask one focused question only if "
-                "an answer would materially change scope or success criteria. When ready, set "
-                "question to null. If draft_now is true, record unknowns as assumptions and "
-                "return the brief with question null. Preserve constraints and exclusions. "
-                "Use empty lists for unknown or inapplicable fields.\n"
-                + json.dumps(data, ensure_ascii=False),
-                IntakeReply,
-                model=session.intake_model,
-                timeout=session.timeout,
-            )
-            session.brief = reply.brief
-            if reply.question and not session.finish_intake:
-                session.pending_question = reply.question
+            elif session.phase == "intake":
+                collect_brief(session, path)
             else:
-                session.phase = "planning"
-            session.save(path)
-        typer.echo(f"Brief saved: {session.brief.goal}")
+                generate_plan(session, path)
+        show_plan(session)
     except typer.Abort:
         typer.echo("Session saved.")
+
+
+def answer_question(session: PlanningSession, path: Path) -> bool:
+    question = session.pending_question
+    if question is None:
+        raise ValueError("Session has no pending question")
+    label = f"{question} (or :plan to draft now)" if session.phase == "intake" else question
+    answer = ask(label)
+    if answer is None:
+        return False
+    if answer == ":plan" and session.phase == "intake":
+        session.finish_intake = True
+    else:
+        session.answers.append(Answer(prompt=question, response=answer))
+        if session.phase == "planning":
+            session.phase = "intake"
+            session.finish_intake = True
+    session.pending_question = None
+    session.save(path)
+    return True
+
+
+def collect_brief(session: PlanningSession, path: Path) -> None:
+    typer.echo("Preparing the brief...", err=True)
+    data = {
+        "answers": [answer.model_dump() for answer in session.answers],
+        "previous_brief": session.brief.model_dump() if session.brief else None,
+        "draft_now": session.finish_intake,
+    }
+    reply = codex_response(
+        Path(session.project),
+        READ_ONLY + " Gather a brief for the requested project. Ask one focused question only if "
+        "an answer would materially change scope or success criteria. When ready, set "
+        "question to null. If draft_now is true, record unknowns as assumptions and "
+        "return the brief with question null. Preserve constraints and exclusions. "
+        "List each requested outcome in requirements, and use empty lists for inapplicable "
+        "fields. Use the latest user answer when it revises a previous requirement.\n"
+        + json.dumps(data, ensure_ascii=False),
+        IntakeReply,
+        model=session.intake_model,
+        timeout=session.timeout,
+    )
+    session.brief = reply.brief
+    if reply.question and not session.finish_intake:
+        session.pending_question = reply.question
+    else:
+        session.phase = "planning"
+    session.save(path)
+
+
+def generate_plan(session: PlanningSession, path: Path) -> None:
+    brief = session.brief
+    if brief is None:
+        raise ValueError("Planning requires a brief")
+    typer.echo("Drafting the implementation plan...", err=True)
+    reply = codex_response(
+        Path(session.project),
+        READ_ONLY + " Inspect the existing project and plan only the work requested by this brief. "
+        "If a missing answer would change scope or an important design decision, return "
+        "one focused question with plan null. Otherwise return a plan with question null. "
+        "Number the brief requirements from 1 in their given order. Link each task to "
+        "one or more of those requirements and cover every requirement. Respect exclusions. "
+        "Use only relevant workstreams, or general for work outside them. Include concrete "
+        "scope, acceptance criteria, dependencies, and proposed automated and human checks. "
+        "Recommend multiple agents only if independent tasks justify coordination.\n"
+        + brief.model_dump_json(),
+        PlanningReply,
+        model=session.planning_model,
+        timeout=session.timeout,
+    )
+    if reply.plan is None:
+        session.pending_question = reply.question
+    else:
+        session.revisions.append(Revision(brief=brief, plan=reply.plan))
+        session.phase = "review"
+    session.save(path)
+
+
+def show_plan(session: PlanningSession) -> None:
+    revision = session.revisions[-1]
+    brief = revision.brief
+    plan = revision.plan
+    typer.echo(f"\nPlan revision {len(session.revisions)} — {brief.goal}")
+    for number, requirement in enumerate(brief.requirements, start=1):
+        typer.echo(f"  R{number}. {requirement}")
+    for label, items in (
+        ("Out of scope", brief.exclusions),
+        ("Constraints", brief.constraints),
+        ("Success criteria", brief.success_criteria),
+        ("Assumptions", list(dict.fromkeys([*brief.assumptions, *plan.assumptions]))),
+    ):
+        if items:
+            typer.echo(f"\n{label}")
+            for item in items:
+                typer.echo(f"  - {item}")
+
+    typer.echo(f"\nAgent recommendation: {plan.agent_strategy} — {plan.agent_rationale}")
+    sorter = TopologicalSorter({task.id: task.depends_on for task in plan.tasks})
+    sorter.prepare()
+    by_id = {task.id: task for task in plan.tasks}
+    batch = 0
+    while sorter.is_active():
+        ready = sorter.get_ready()
+        batch += 1
+        typer.echo(f"\nDependency group {batch}")
+        for task_id in ready:
+            task = by_id[task_id]
+            requirements = ", ".join(f"R{number}" for number in task.requirement_ids)
+            typer.echo(f"  {task.id}. {task.title} ({task.workstream}, {task.difficulty})")
+            typer.echo(f"    {task.description} [{requirements}]")
+            if task.depends_on:
+                typer.echo(f"    After: {', '.join(task.depends_on)}")
+            for label, items in (
+                ("Scope", task.scope),
+                ("Acceptance", task.acceptance_criteria),
+                ("Automated check", task.automated_checks),
+                ("Human check", task.human_checks),
+            ):
+                for item in items:
+                    typer.echo(f"    {label}: {item}")
+        sorter.done(*ready)

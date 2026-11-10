@@ -2,11 +2,11 @@
 
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from codex_orchestrator.models import Text
+from codex_orchestrator.models import PlanContent, Task, Text, Workstream
 
 
 class SessionData(BaseModel):
@@ -29,6 +29,38 @@ class Answer(SessionData):
     response: Text
 
 
+class ScopedTask(Task):
+    workstream: Workstream | Literal["general"]
+    requirement_ids: Annotated[list[int], Field(min_length=1)]
+    scope: Annotated[list[Text], Field(min_length=1)]
+    difficulty: Literal["routine", "moderate", "complex"]
+    automated_checks: list[Text]
+    human_checks: list[Text]
+
+
+class DraftPlan(PlanContent):
+    tasks: Annotated[list[ScopedTask], Field(min_length=1)]
+    agent_strategy: Literal["single", "multiple"]
+    agent_rationale: Text
+
+
+class Revision(SessionData):
+    brief: Brief
+    plan: DraftPlan
+
+    @model_validator(mode="after")
+    def validate_requirement_coverage(self) -> Self:
+        expected = set(range(1, len(self.brief.requirements) + 1))
+        assigned = {number for task in self.plan.tasks for number in task.requirement_ids}
+        unknown = assigned - expected
+        missing = expected - assigned
+        if unknown:
+            raise ValueError(f"Tasks reference unknown requirements: {sorted(unknown)}")
+        if missing:
+            raise ValueError(f"Plan is missing tasks for requirements: {sorted(missing)}")
+        return self
+
+
 class PlanningSession(SessionData):
     schema_version: Literal[1] = 1
     project: Text
@@ -36,11 +68,12 @@ class PlanningSession(SessionData):
     intake_model: Text | None = None
     planning_model: Text | None = None
     timeout: int = Field(default=300, ge=1)
-    phase: Literal["intake", "planning"] = "intake"
+    phase: Literal["intake", "planning", "review"] = "intake"
     answers: list[Answer] = Field(default_factory=list)
     brief: Brief | None = None
     pending_question: Text | None = None
     finish_intake: bool = False
+    revisions: list[Revision] = Field(default_factory=list)
 
     @classmethod
     def load(cls, path: Path) -> "PlanningSession":
