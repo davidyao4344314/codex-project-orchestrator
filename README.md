@@ -112,6 +112,13 @@ The adapter uses the officially supported
 Authentication and the default model come from the CLI. There are no credentials in this repo.
 Codex account usage applies when you select this provider.
 
+Use `codex login status` to check your sign-in. If you need to sign in, run `codex login` and
+complete the ChatGPT browser flow. Keep Codex's credential store outside the repository.
+Git ignores `auth.json`, `.env` files, and generated plans under `plans/`. If you choose an
+output path elsewhere, review the saved brief and session before staging it. Codex can read
+project files during planning, so keep secrets out of the brief and use a project folder that
+you are comfortable sharing with your signed-in Codex service.
+
 Use `--model MODEL_NAME` to choose a model available to your account, and `--timeout 600` to
 change the default 300-second timeout. Missing Codex, authentication failures, timeouts, and
 invalid responses produce an error; they do not silently fall back to template tasks.

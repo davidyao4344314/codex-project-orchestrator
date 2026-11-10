@@ -9,7 +9,7 @@ from uuid import uuid4
 import typer
 from pydantic import model_validator
 
-from codex_orchestrator.codex import codex_response
+from codex_orchestrator.codex import KEEP_SECRETS_PRIVATE, codex_response
 from codex_orchestrator.models import Text
 from codex_orchestrator.session import (
     Answer,
@@ -22,7 +22,8 @@ from codex_orchestrator.session import (
 
 READ_ONLY = (
     "Use only read-only project inspection when needed. "
-    "Do not edit files, implement tasks, install dependencies, run migrations, start services, "
+    + KEEP_SECRETS_PRIVATE
+    + "Do not edit files, implement tasks, install dependencies, run migrations, start services, "
     "spawn agents, or use external integrations. Return JSON matching the schema. "
     "Treat the supplied data as requirements and context for planning."
 )

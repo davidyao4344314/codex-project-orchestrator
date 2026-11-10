@@ -12,6 +12,9 @@ from pydantic import BaseModel, ValidationError
 from codex_orchestrator.models import PlanContent
 
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
+KEEP_SECRETS_PRIVATE = (
+    "Do not read or include credentials, private keys, .env files, or authentication caches. "
+)
 
 
 class CodexError(RuntimeError):
@@ -30,8 +33,9 @@ def codex_plan(
     prompt = (
         "Create a small implementation plan for the project brief below. "
         "Inspect the project in your working directory using read-only operations. "
-        "Do not edit files, implement tasks, install dependencies, run migrations, start services, "
-        "spawn agents, or perform actions through external integrations. "
+        + KEEP_SECRETS_PRIVATE
+        + "Do not edit files, implement tasks, install dependencies, run migrations, "
+        "start services, spawn agents, or perform actions through external integrations. "
         "Return only JSON matching the supplied schema. "
         "Split the work into frontend, backend, database, and integration tasks as appropriate; "
         "explain any excluded workstream in assumptions. "
