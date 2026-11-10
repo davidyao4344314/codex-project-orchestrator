@@ -177,3 +177,6 @@ resuming after a failed model call.
 1. Add `status` to read a saved plan and show which tasks have their prerequisites satisfied.
 2. Add an explicit command to run one selected task and record its result.
 3. Add independent workers and Git worktrees once single-task execution is reliable.
+
+See the [project roadmap](docs/roadmap.md) for the Workflow Analyzer, Task Planner,
+Performance Optimizer, and Evaluation Engine.
