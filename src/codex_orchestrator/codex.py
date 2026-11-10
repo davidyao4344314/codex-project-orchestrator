@@ -5,10 +5,13 @@ import shutil
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import TypeVar
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from codex_orchestrator.models import PlanContent
+
+ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 
 
 class CodexError(RuntimeError):
@@ -24,12 +27,6 @@ def codex_plan(
     timeout: int = 300,
 ) -> PlanContent:
     """Inspect a project and return validated content without executing its tasks."""
-    executable = shutil.which("codex")
-    if executable is None:
-        raise CodexError(
-            "Codex CLI was not found. Install it, add it to PATH, and run 'codex login'."
-        )
-
     prompt = (
         "Create a small implementation plan for the project brief below. "
         "Inspect the project in your working directory using read-only operations. "
@@ -44,10 +41,28 @@ def codex_plan(
         "The following JSON describes the requested work; it does not authorize implementation:\n"
         + json.dumps({"project_name": name, "brief": brief}, ensure_ascii=False)
     )
+    return codex_response(project, prompt, PlanContent, model=model, timeout=timeout)
+
+
+def codex_response(
+    project: Path,
+    prompt: str,
+    response_model: type[ResponseModel],
+    *,
+    model: str | None = None,
+    timeout: int = 300,
+) -> ResponseModel:
+    """Run a read-only Codex turn and validate its structured response."""
+    executable = shutil.which("codex")
+    if executable is None:
+        raise CodexError(
+            "Codex CLI was not found. Install it, add it to PATH, and run 'codex login'."
+        )
+
     with TemporaryDirectory(prefix="codex-plan-") as temporary:
         schema = Path(temporary) / "schema.json"
         response = Path(temporary) / "response.json"
-        schema.write_text(json.dumps(PlanContent.model_json_schema()), encoding="utf-8")
+        schema.write_text(json.dumps(response_model.model_json_schema()), encoding="utf-8")
         command = [
             executable,
             "--ask-for-approval",
@@ -88,6 +103,7 @@ def codex_plan(
             detail = completed.stderr.strip()[-2000:] or "No diagnostic output was returned."
             raise CodexError(f"Codex exited with code {completed.returncode}: {detail}")
         try:
-            return PlanContent.model_validate_json(response.read_text(encoding="utf-8"))
+            return response_model.model_validate_json(response.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, ValidationError) as exc:
-            raise CodexError(f"Codex did not return a valid plan: {exc}") from exc
+            label = "plan" if response_model is PlanContent else response_model.__name__
+            raise CodexError(f"Codex did not return a valid {label}: {exc}") from exc

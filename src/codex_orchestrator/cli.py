@@ -7,8 +7,10 @@ import typer
 from pydantic import ValidationError
 
 from codex_orchestrator.codex import CodexError, codex_plan
+from codex_orchestrator.interactive import run_session, start_session
 from codex_orchestrator.models import PlanningMode, ProjectPlan
 from codex_orchestrator.planner import template_plan
+from codex_orchestrator.session import PlanningSession
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -32,30 +34,54 @@ def plan(
     name: Annotated[
         str | None, typer.Option(help="Project name; defaults to the directory name.")
     ] = None,
-    output: Annotated[Path, typer.Option("--output", "-o", help="Destination JSON file.")] = Path(
-        "plans/plan.json"
-    ),
+    output: Annotated[
+        Path | None, typer.Option("--output", "-o", help="Destination JSON file.")
+    ] = None,
     provider: Annotated[
-        PlanningMode, typer.Option(help="Use a local template or ask Codex to inspect the project.")
-    ] = PlanningMode.TEMPLATE,
+        PlanningMode | None,
+        typer.Option(help="Planning provider (default: template, or codex for interactive)."),
+    ] = None,
     model: Annotated[
         str | None, typer.Option(help="Codex model override; otherwise use the CLI default.")
     ] = None,
     timeout: Annotated[int, typer.Option(min=1, help="Codex timeout in seconds.")] = 300,
+    interactive: Annotated[
+        bool, typer.Option(help="Collect requirements in the terminal.")
+    ] = False,
+    intake_model: Annotated[str | None, typer.Option(help="Model for interactive intake.")] = None,
     force: Annotated[bool, typer.Option(help="Replace an existing output file.")] = False,
 ) -> None:
     """Save a validated plan without implementing tasks."""
-    if (brief is None) == (brief_file is None):
+    if brief is not None and brief_file is not None:
         raise typer.BadParameter("Provide either a brief argument or --brief-file, exactly one.")
+    if not interactive and brief is None and brief_file is None:
+        raise typer.BadParameter("Provide either a brief argument or --brief-file, exactly one.")
+    if not interactive and intake_model is not None:
+        raise typer.BadParameter("--intake-model requires --interactive.")
+    if interactive and (force or provider == PlanningMode.TEMPLATE):
+        raise typer.BadParameter("Interactive mode uses Codex and creates a new session file.")
+    provider = provider or (PlanningMode.CODEX if interactive else PlanningMode.TEMPLATE)
     if model is not None and provider != PlanningMode.CODEX:
         raise typer.BadParameter("--model requires --provider codex.")
     try:
         text = brief_file.read_text(encoding="utf-8") if brief_file else brief
-        if not text or not text.strip():
+        if text is not None and not text.strip():
             raise typer.BadParameter("The brief must not be empty.")
         if name is not None and not name.strip():
             raise typer.BadParameter("The project name must not be empty.")
         project_name = name.strip() if name is not None else project.name or "project"
+        if interactive:
+            start_session(
+                project,
+                project_name,
+                text,
+                output,
+                intake_model=intake_model,
+                planning_model=model,
+                timeout=timeout,
+            )
+            return
+        output = output or Path("plans/plan.json")
         if output.exists() and not force:
             raise typer.BadParameter(f"Output already exists: {output}. Use --force to replace it.")
         if provider == PlanningMode.CODEX:
@@ -80,3 +106,19 @@ def plan(
         typer.echo(
             "Template tasks are generic; refine them against your brief before implementation."
         )
+
+
+@app.command()
+def resume(
+    session_file: Annotated[
+        Path,
+        typer.Argument(exists=True, dir_okay=False, resolve_path=True, help="Saved session JSON."),
+    ],
+) -> None:
+    """Continue a saved interactive planning session."""
+    try:
+        session = PlanningSession.load(session_file)
+        run_session(session, session_file)
+    except (OSError, UnicodeError, ValidationError, CodexError) as exc:
+        typer.echo(f"Could not continue session: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
