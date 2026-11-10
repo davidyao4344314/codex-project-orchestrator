@@ -1,0 +1,90 @@
+{
+  "assumptions": [
+    "This is a generic template, not an AI-generated or repository-aware plan.",
+    "The feature needs frontend, backend, and persistent data; confirm this scope.",
+    "Refine each task against the project brief and existing code before implementation."
+  ],
+  "tasks": [
+    {
+      "id": "contract",
+      "title": "Agree on feature scope and interface contracts",
+      "workstream": "integration",
+      "description": "Review the brief and existing code; define data and API boundaries.",
+      "depends_on": [],
+      "acceptance_criteria": [
+        "Expected user flows and exclusions are recorded.",
+        "Request, response, validation, and error formats are agreed."
+      ]
+    },
+    {
+      "id": "database",
+      "title": "Design data storage and migrations",
+      "workstream": "database",
+      "description": "Define entities and constraints that support the agreed contract.",
+      "depends_on": [
+        "contract"
+      ],
+      "acceptance_criteria": [
+        "Schema and migration approach match the feature requirements.",
+        "Migration and data integrity checks are defined."
+      ]
+    },
+    {
+      "id": "backend",
+      "title": "Implement backend behavior",
+      "workstream": "backend",
+      "description": "Implement API endpoints, validation, and persistence behavior.",
+      "depends_on": [
+        "database"
+      ],
+      "acceptance_criteria": [
+        "Endpoints follow the agreed contract and handle invalid input.",
+        "Backend checks cover expected behavior and failure cases."
+      ]
+    },
+    {
+      "id": "frontend",
+      "title": "Build the frontend user flow",
+      "workstream": "frontend",
+      "description": "Build the interface against the agreed contract using mock data.",
+      "depends_on": [
+        "contract"
+      ],
+      "acceptance_criteria": [
+        "The primary flow includes loading, empty, and error states.",
+        "User interactions are accessible and checked against the contract."
+      ]
+    },
+    {
+      "id": "integration",
+      "title": "Connect frontend, backend, and database",
+      "workstream": "integration",
+      "description": "Replace mocks and verify the complete data flow.",
+      "depends_on": [
+        "backend",
+        "frontend"
+      ],
+      "acceptance_criteria": [
+        "The main user flow works through the real API and persistence layer.",
+        "Configuration and error handling work across component boundaries."
+      ]
+    },
+    {
+      "id": "verification",
+      "title": "Verify the feature and document setup",
+      "workstream": "integration",
+      "description": "Run end-to-end checks and review acceptance criteria from the brief.",
+      "depends_on": [
+        "integration"
+      ],
+      "acceptance_criteria": [
+        "The primary flow and a representative failure case pass.",
+        "Setup instructions and any remaining limitations are recorded."
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "project_name": "activity-planner",
+  "brief": "Build an activity planner for a small team.\n\nPeople should be able to create activities with a title, date, and description,\nview upcoming activities, and edit or delete them. Save activities between sessions.\n\nInclude input validation, useful empty and error states, and a check that an activity\ncreated in the frontend appears after reloading the page.",
+  "planning_mode": "template"
+}
