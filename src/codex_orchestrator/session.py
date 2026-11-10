@@ -68,12 +68,28 @@ class PlanningSession(SessionData):
     intake_model: Text | None = None
     planning_model: Text | None = None
     timeout: int = Field(default=300, ge=1)
-    phase: Literal["intake", "planning", "review"] = "intake"
+    phase: Literal["intake", "planning", "review", "approved"] = "intake"
     answers: list[Answer] = Field(default_factory=list)
     brief: Brief | None = None
     pending_question: Text | None = None
     finish_intake: bool = False
     revisions: list[Revision] = Field(default_factory=list)
+
+    approved_revision: int | None = None
+
+    @model_validator(mode="after")
+    def validate_phase(self) -> Self:
+        if self.phase != "intake" and self.brief is None:
+            raise ValueError("The session is missing its brief")
+        if self.phase in ("review", "approved"):
+            if not self.revisions or self.brief != self.revisions[-1].brief:
+                raise ValueError("The session is missing its current plan revision")
+            if self.pending_question is not None:
+                raise ValueError("A plan in review cannot have a pending question")
+        expected_approval = len(self.revisions) if self.phase == "approved" else None
+        if self.approved_revision != expected_approval:
+            raise ValueError("Approval must refer to the current approved revision")
+        return self
 
     @classmethod
     def load(cls, path: Path) -> "PlanningSession":

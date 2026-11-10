@@ -1,4 +1,4 @@
-"""Terminal prompts for turning a project idea into a saved brief."""
+"""Terminal workflow for intake, planning, review, and approval."""
 
 import json
 from graphlib import TopologicalSorter
@@ -86,17 +86,48 @@ def run_session(session: PlanningSession, path: Path) -> None:
     typer.echo(f"Session: {path}")
     typer.echo("Type :save at a prompt to save and exit.")
     try:
-        while session.phase in ("intake", "planning"):
+        while True:
             if session.pending_question is not None:
                 if not answer_question(session, path):
                     return
             elif session.phase == "intake":
                 collect_brief(session, path)
-            else:
+            elif session.phase == "planning":
                 generate_plan(session, path)
-        show_plan(session)
+            elif not review_plan(session, path):
+                return
     except typer.Abort:
         typer.echo("Session saved.")
+
+
+def review_plan(session: PlanningSession, path: Path) -> bool:
+    show_plan(session)
+    if session.approved_revision is not None:
+        typer.echo(f"Revision {session.approved_revision} is approved.")
+        choices = "revise / save"
+    else:
+        choices = "approve / revise / save"
+    while True:
+        decision = ask(f"Review plan [{choices}]")
+        if decision is None or decision.casefold() == "save":
+            return False
+        if decision.casefold() == "approve" and session.phase == "review":
+            session.phase = "approved"
+            session.approved_revision = len(session.revisions)
+            session.save(path)
+            typer.echo(f"Approved revision {session.approved_revision}.")
+            return False
+        if decision.casefold() == "revise":
+            feedback = ask("What should change in the plan?")
+            if feedback is None:
+                return False
+            session.answers.append(Answer(prompt="Plan revision request", response=feedback))
+            session.phase = "intake"
+            session.finish_intake = False
+            session.approved_revision = None
+            session.save(path)
+            return True
+        typer.echo(f"Choose {choices}.")
 
 
 def answer_question(session: PlanningSession, path: Path) -> bool:
@@ -122,9 +153,11 @@ def answer_question(session: PlanningSession, path: Path) -> bool:
 def collect_brief(session: PlanningSession, path: Path) -> None:
     typer.echo("Preparing the brief...", err=True)
     data = {
+        "project_name": session.project_name,
         "answers": [answer.model_dump() for answer in session.answers],
         "previous_brief": session.brief.model_dump() if session.brief else None,
         "draft_now": session.finish_intake,
+        "previous_plan": (session.revisions[-1].plan.model_dump() if session.revisions else None),
     }
     reply = codex_response(
         Path(session.project),
@@ -133,7 +166,9 @@ def collect_brief(session: PlanningSession, path: Path) -> None:
         "question to null. If draft_now is true, record unknowns as assumptions and "
         "return the brief with question null. Preserve constraints and exclusions. "
         "List each requested outcome in requirements, and use empty lists for inapplicable "
-        "fields. Use the latest user answer when it revises a previous requirement.\n"
+        "fields. Use the latest user answer when it revises a previous requirement. "
+        "The rules for this planning call are separate from the target project's requirements. "
+        "Populate the brief from user answers and relevant project facts only.\n"
         + json.dumps(data, ensure_ascii=False),
         IntakeReply,
         model=session.intake_model,
@@ -152,6 +187,10 @@ def generate_plan(session: PlanningSession, path: Path) -> None:
     if brief is None:
         raise ValueError("Planning requires a brief")
     typer.echo("Drafting the implementation plan...", err=True)
+    data = {
+        "brief": brief.model_dump(),
+        "previous_plan": session.revisions[-1].plan.model_dump() if session.revisions else None,
+    }
     reply = codex_response(
         Path(session.project),
         READ_ONLY + " Inspect the existing project and plan only the work requested by this brief. "
@@ -161,8 +200,9 @@ def generate_plan(session: PlanningSession, path: Path) -> None:
         "one or more of those requirements and cover every requirement. Respect exclusions. "
         "Use only relevant workstreams, or general for work outside them. Include concrete "
         "scope, acceptance criteria, dependencies, and proposed automated and human checks. "
-        "Recommend multiple agents only if independent tasks justify coordination.\n"
-        + brief.model_dump_json(),
+        "Recommend multiple agents only if independent tasks justify coordination. "
+        "When revising, retain work from the prior plan where it still fits the brief.\n"
+        + json.dumps(data, ensure_ascii=False),
         PlanningReply,
         model=session.planning_model,
         timeout=session.timeout,
@@ -183,6 +223,8 @@ def show_plan(session: PlanningSession) -> None:
     for number, requirement in enumerate(brief.requirements, start=1):
         typer.echo(f"  R{number}. {requirement}")
     for label, items in (
+        ("Intended users", brief.users),
+        ("Project context", brief.project_context),
         ("Out of scope", brief.exclusions),
         ("Constraints", brief.constraints),
         ("Success criteria", brief.success_criteria),

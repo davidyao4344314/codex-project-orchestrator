@@ -32,6 +32,40 @@ with `source .venv/bin/activate` in each new terminal session.
 In PyCharm, open this repository folder as a project and select the existing `.venv/bin/python`
 as its Python interpreter. Run `python -m codex_orchestrator --help` in the PyCharm terminal.
 
+## Stage 1: interactive planning
+
+With Codex CLI installed and signed in, start a session from your terminal:
+
+```sh
+orchestrator plan . --interactive -o plans/activity-session.json
+```
+
+Pass the directory of the project you want to plan for in place of `.`. You can also pass
+an initial brief as an argument or with `--brief-file`. If you omit `-o`, the program creates
+a unique session file under `plans/`.
+
+1. Describe the feature. The intake model asks about gaps that affect scope or success criteria.
+   Type `:plan` at an intake question to proceed with the information you have.
+2. The planning model reads the brief and inspects the project. It can ask a clarification
+   question before drafting. The plan links tasks to requirements and suggests a specialist
+   role, difficulty, dependencies, scope, and automated and human checks for each task.
+3. Review the dependency groups and the agent recommendation. Tasks in the same group have
+   their dependencies satisfied at the same time. Whether they can run concurrently also
+   depends on whether their changes overlap.
+4. Choose `approve`, `revise`, or `save`. Approval records the current revision. A revision
+   request opens a draft and keeps the previous plan in the session history.
+
+Use `:save` at a question or resume after an interrupted call:
+
+```sh
+orchestrator resume plans/activity-session.json
+```
+
+The session JSON stores the conversation, structured brief, revisions, and approval. The
+interactive workflow ends with the saved plan. It uses read-only Codex planning calls.
+Set `--intake-model` and `--model` to choose intake and planning models separately, or
+omit them to use your Codex configuration. `--timeout` applies per model call.
+
 ## Create a starter plan
 
 ```sh
@@ -117,7 +151,9 @@ Start with `planner.py` to see the six starter tasks. The rest is split into sma
 | `src/codex_orchestrator/planner.py` | Defines the generic offline workflow. |
 | `src/codex_orchestrator/models.py` | Defines a task and checks the dependency graph. |
 | `src/codex_orchestrator/cli.py` | Reads command-line options and writes the plan. |
-| `src/codex_orchestrator/codex.py` | Sends one planning request to the Codex CLI. |
+| `src/codex_orchestrator/codex.py` | Sends a request and validates structured Codex output. |
+| `src/codex_orchestrator/interactive.py` | Runs the terminal intake, planning, and review flow. |
+| `src/codex_orchestrator/session.py` | Defines briefs and revisions and saves resumable checkpoints. |
 | `tests/` | Checks behavior using Python and pytest. |
 
 The template starts with a contract, then separates database/backend work from frontend work
@@ -132,17 +168,12 @@ ruff check .
 ruff format --check .
 ```
 
-Validation in this workspace: 32 tests passed on Python 3.14.3; Ruff and `pip check` passed.
-Tests cover JSON validation, dependency cycles, CLI input/output, output replacement, and Codex
-success/failure/timeout handling. A fake CLI process tests the real subprocess and file handoff
-without network access. The actual CLI's help was inspected, but a live authenticated AI
-planning request has not been run as part of this setup.
+Tests cover JSON validation, dependency cycles, CLI input/output, and Codex failures. The
+interactive tests simulate Codex replies to exercise clarification, revision, approval, and
+resuming after a failed model call.
 
 ## Next increments
 
 1. Add `status` to read a saved plan and show which tasks have their prerequisites satisfied.
 2. Add an explicit command to run one selected task and record its result.
 3. Add independent workers and Git worktrees once single-task execution is reliable.
-
-Only `plan` is implemented today. The Git history keeps the package scaffold, local planner,
-and optional Codex adapter in separate commits so each step is easy to inspect.
