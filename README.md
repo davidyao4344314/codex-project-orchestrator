@@ -29,6 +29,9 @@ The equivalent module entry point is `python -m codex_orchestrator`.
 On this initialized workspace, `.venv` already exists and has the dependencies installed; start
 with `source .venv/bin/activate` in each new terminal session.
 
+In PyCharm, open this repository folder as a project and select the existing `.venv/bin/python`
+as its Python interpreter. Run `python -m codex_orchestrator --help` in the PyCharm terminal.
+
 ## Create a starter plan
 
 ```sh
