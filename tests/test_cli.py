@@ -4,7 +4,9 @@ import pytest
 from typer.testing import CliRunner
 
 from codex_orchestrator.cli import app
+from codex_orchestrator.codex import CodexError
 from codex_orchestrator.models import ProjectPlan
+from codex_orchestrator.planner import template_plan
 
 runner = CliRunner()
 
@@ -78,4 +80,71 @@ def test_reject_two_briefs(tmp_path: Path) -> None:
 
 def test_reject_missing_project(tmp_path: Path) -> None:
     result = runner.invoke(app, ["plan", str(tmp_path / "missing"), "Build an app"])
+    assert result.exit_code == 2
+
+
+def test_codex_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+
+    def planner(*args: object, **kwargs: object):
+        calls.append((args, kwargs))
+        return template_plan()
+
+    monkeypatch.setattr("codex_orchestrator.cli.codex_plan", planner)
+    output = tmp_path / "plan.json"
+    result = runner.invoke(
+        app,
+        [
+            "plan",
+            str(tmp_path),
+            "Build an app",
+            "--provider",
+            "codex",
+            "--model",
+            "account-model",
+            "--timeout",
+            "20",
+            "-o",
+            str(output),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    plan = ProjectPlan.model_validate_json(output.read_text(encoding="utf-8"))
+    assert plan.planning_mode == "codex"
+    assert len(calls) == 1
+    assert calls[0][1] == {"model": "account-model", "timeout": 20}
+
+
+def test_failed_codex_keeps_previous_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail(*args: object, **kwargs: object):
+        raise CodexError("Invalid planning output")
+
+    monkeypatch.setattr("codex_orchestrator.cli.codex_plan", fail)
+    output = tmp_path / "plan.json"
+    output.write_text("previous plan", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        [
+            "plan",
+            str(tmp_path),
+            "Build an app",
+            "--provider",
+            "codex",
+            "--force",
+            "-o",
+            str(output),
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Invalid planning output" in result.output
+    assert output.read_text(encoding="utf-8") == "previous plan"
+
+
+def test_model_requires_codex(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["plan", str(tmp_path), "A brief", "--model", "some-model"])
+    assert result.exit_code == 2
+
+
+def test_reject_nonpositive_timeout(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["plan", str(tmp_path), "A brief", "--timeout", "0"])
     assert result.exit_code == 2
