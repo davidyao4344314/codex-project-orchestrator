@@ -15,6 +15,7 @@ def test_design_snapshot_roundtrip(approved_session, technical_payload):
     assert TechnicalDesign.model_validate_json(design.model_dump_json()) == design
     state = DesignSession(
         source_file=str(path),
+        project=source.project,
         source_revision=1,
         source=source.revisions[0],
         source_digest=source_digest(source.revisions[0]),
@@ -30,6 +31,7 @@ def test_reject_false_approval_and_changed_source(approved_session):
     path, source = approved_session
     data = dict(
         source_file=str(path),
+        project=source.project,
         source_revision=1,
         source=source.revisions[0],
         source_digest=source_digest(source.revisions[0]),

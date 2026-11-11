@@ -8,6 +8,7 @@ import typer
 from pydantic import ValidationError
 
 from codex_orchestrator.codex import CodexError, codex_plan
+from codex_orchestrator.design import prepare_design, run_design
 from codex_orchestrator.interactive import run_session, start_session
 from codex_orchestrator.models import PlanningMode, ProjectPlan
 from codex_orchestrator.planner import template_plan
@@ -154,3 +155,34 @@ def setup() -> None:
         typer.echo(f"Setup incomplete: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo("Codex is ready. Start a plan or resume your saved session.")
+
+
+@app.command()
+def design(
+    session_file: Annotated[
+        Path,
+        typer.Argument(
+            exists=True, dir_okay=False, resolve_path=True, help="Approved Stage 1 JSON."
+        ),
+    ],
+    output: Annotated[
+        Path | None, typer.Option("--output", "-o", help="Stage 2 session JSON.")
+    ] = None,
+    model: Annotated[
+        str | None,
+        typer.Option("--model", "--architect-model", help="Architect model ID, or default."),
+    ] = None,
+    agent_model: Annotated[
+        str | None, typer.Option(help="Default model ID for proposed agents, or default.")
+    ] = None,
+    timeout: Annotated[int, typer.Option(min=1, help="Architect timeout in seconds.")] = 300,
+) -> None:
+    """Design technical structure and agent responsibilities from approved requirements."""
+    try:
+        state, path = prepare_design(
+            session_file, output, architect_model=model, agent_model=agent_model
+        )
+        run_design(state, path, timeout)
+    except (OSError, UnicodeError, ValidationError, CodexError) as exc:
+        typer.echo(f"Could not create technical design: {exc}", err=True)
+        raise typer.Exit(code=1) from exc

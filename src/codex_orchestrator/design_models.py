@@ -144,6 +144,7 @@ def source_digest(revision: Revision) -> str:
 class DesignSession(SessionData):
     schema_version: Literal[1] = 1
     source_file: Text
+    project: Text
     source_revision: int = Field(ge=1)
     source: Revision
     source_digest: Text
