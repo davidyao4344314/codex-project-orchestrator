@@ -46,7 +46,7 @@ def test_codex_invocation_uses_read_only_and_schema(
 
 
 def test_missing_codex(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("codex_orchestrator.codex.shutil.which", lambda _: None)
+    monkeypatch.setattr("codex_orchestrator.codex.find_codex", lambda: None)
     with pytest.raises(CodexError, match="not found"):
         codex_plan(tmp_path, "Example", "Build an app")
 

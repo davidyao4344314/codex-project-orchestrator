@@ -90,6 +90,7 @@ def test_codex_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
         calls.append((args, kwargs))
         return template_plan()
 
+    monkeypatch.setattr("codex_orchestrator.cli.ensure_codex", lambda **_: "/tools/codex")
     monkeypatch.setattr("codex_orchestrator.cli.codex_plan", planner)
     output = tmp_path / "plan.json"
     result = runner.invoke(
@@ -119,6 +120,7 @@ def test_failed_codex_keeps_previous_plan(tmp_path: Path, monkeypatch: pytest.Mo
     def fail(*args: object, **kwargs: object):
         raise CodexError("Invalid planning output")
 
+    monkeypatch.setattr("codex_orchestrator.cli.ensure_codex", lambda **_: "/tools/codex")
     monkeypatch.setattr("codex_orchestrator.cli.codex_plan", fail)
     output = tmp_path / "plan.json"
     output.write_text("previous plan", encoding="utf-8")

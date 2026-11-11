@@ -1,5 +1,6 @@
 """Command-line entry point."""
 
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -11,6 +12,7 @@ from codex_orchestrator.interactive import run_session, start_session
 from codex_orchestrator.models import PlanningMode, ProjectPlan
 from codex_orchestrator.planner import template_plan
 from codex_orchestrator.session import PlanningSession
+from codex_orchestrator.setup import ensure_codex
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -85,6 +87,7 @@ def plan(
         if output.exists() and not force:
             raise typer.BadParameter(f"Output already exists: {output}. Use --force to replace it.")
         if provider == PlanningMode.CODEX:
+            ensure_codex(interactive=sys.stdin.isatty())
             typer.echo("Asking Codex to inspect the project and plan the work...", err=True)
             content = codex_plan(project, project_name, text, model=model, timeout=timeout)
         else:
@@ -122,3 +125,14 @@ def resume(
     except (OSError, UnicodeError, ValidationError, CodexError) as exc:
         typer.echo(f"Could not continue session: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+
+
+@app.command()
+def setup() -> None:
+    """Find or install Codex CLI and sign in with the browser."""
+    try:
+        ensure_codex()
+    except (CodexError, typer.Abort) as exc:
+        typer.echo(f"Setup incomplete: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo("Codex is ready. Start a plan or resume your saved session.")

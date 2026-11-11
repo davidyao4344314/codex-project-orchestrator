@@ -57,6 +57,7 @@ def draft(requirement: str, requirement_id: int = 1) -> dict:
 def codex(monkeypatch: pytest.MonkeyPatch):
     replies = []
     calls = []
+    monkeypatch.setattr("codex_orchestrator.interactive.ensure_codex", lambda: "/tools/codex")
     monkeypatch.setattr("codex_orchestrator.codex.shutil.which", lambda _: "/tools/codex")
 
     def run(command: list[str], **options: object) -> subprocess.CompletedProcess:

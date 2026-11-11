@@ -1,6 +1,7 @@
 """One bounded, read-only planning call through the supported Codex CLI."""
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -19,6 +20,37 @@ KEEP_SECRETS_PRIVATE = (
 
 class CodexError(RuntimeError):
     """An actionable error from the optional Codex planner."""
+
+
+def codex_candidates() -> list[Path]:
+    """Known install locations, including the desktop app's bundled CLI on macOS."""
+    return [
+        Path.home() / ".local/bin/codex",
+        Path.home() / ".npm-global/bin/codex",
+        Path("/opt/homebrew/bin/codex"),
+        Path("/usr/local/bin/codex"),
+        Path(
+            "/Applications/ChatGPT.app/Contents/Resources/"
+            "codex-cli/CodexCLI.app/Contents/MacOS/codex"
+        ),
+    ]
+
+
+def find_codex() -> str | None:
+    """Resolve the same executable for setup, sign-in, and planning."""
+    override = os.environ.get("CODEX_EXECUTABLE")
+    if override:
+        path = Path(override).expanduser()
+        if not path.is_file() or not os.access(path, os.X_OK):
+            raise CodexError("CODEX_EXECUTABLE must point to an executable Codex CLI file.")
+        return str(path.resolve())
+    executable = shutil.which("codex")
+    if executable:
+        return executable
+    for path in codex_candidates():
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+    return None
 
 
 def codex_plan(
@@ -57,10 +89,10 @@ def codex_response(
     timeout: int = 300,
 ) -> ResponseModel:
     """Run a read-only Codex turn and validate its structured response."""
-    executable = shutil.which("codex")
+    executable = find_codex()
     if executable is None:
         raise CodexError(
-            "Codex CLI was not found. Install it, add it to PATH, and run 'codex login'."
+            "Codex CLI was not found. Run 'orchestrator setup' for installation and sign-in."
         )
 
     with TemporaryDirectory(prefix="codex-plan-") as temporary:

@@ -32,6 +32,20 @@ with `source .venv/bin/activate` in each new terminal session.
 In PyCharm, open this repository folder as a project and select the existing `.venv/bin/python`
 as its Python interpreter. Run `python -m codex_orchestrator --help` in the PyCharm terminal.
 
+Run `orchestrator setup` to check Codex installation and sign-in. Interactive planning also
+runs this check after saving your initial idea. The program searches PATH, common install
+locations, and the Codex CLI bundled with ChatGPT on macOS. To select a specific executable,
+set `CODEX_EXECUTABLE` to its full path in your terminal environment.
+
+If Codex is missing, setup offers to install `@openai/codex` with npm after confirmation. If
+npm is unavailable or you prefer another method, it shows the official installation guide
+and accepts the path to an installed executable. If sign-in is needed, it offers to open
+Codex's browser login and verifies the result before continuing. Existing sign-ins are reused.
+Codex handles credential storage. Setup keeps credentials out of the project files.
+
+If you postpone setup, resume your saved session with `orchestrator resume` and its JSON path.
+Setup is also available as a separate command so you can check it before starting a session.
+
 ## Stage 1: interactive planning
 
 With Codex CLI installed and signed in, start a session from your terminal:

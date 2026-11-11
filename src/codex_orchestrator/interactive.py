@@ -19,6 +19,7 @@ from codex_orchestrator.session import (
     Revision,
     SessionData,
 )
+from codex_orchestrator.setup import ensure_codex
 
 READ_ONLY = (
     "Use only read-only project inspection when needed. "
@@ -87,6 +88,8 @@ def run_session(session: PlanningSession, path: Path) -> None:
     typer.echo(f"Session: {path}")
     typer.echo("Type :save at a prompt to save and exit.")
     try:
+        if session.phase in ("intake", "planning"):
+            ensure_codex()
         while True:
             if session.pending_question is not None:
                 if not answer_question(session, path):
@@ -97,6 +100,8 @@ def run_session(session: PlanningSession, path: Path) -> None:
                 generate_plan(session, path)
             elif not review_plan(session, path):
                 return
+            else:
+                ensure_codex()
     except typer.Abort:
         typer.echo("Session saved.")
 
