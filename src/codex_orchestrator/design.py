@@ -45,11 +45,15 @@ ARCHITECT_INSTRUCTIONS = (
     "Reference context by kind: requirement uses R1-style IDs, component and interface use IDs, "
     "project_file uses a repository-relative file, task_output uses the producer task ID. "
     "Explain why each context item is needed and what to do if it is missing. "
+    "Set required true when a task cannot be completed correctly without that item. "
+    "A verification task must require the implementation output it verifies. "
     "A required upstream output needs a dependency on its producer. Existing files needed for "
     "implementation belong in context, while future files belong in upstream task outputs. "
     "Keep stage and task dependencies acyclic. Order tasks that write the same file. "
     "Handoff recipients and gate owners are agent IDs or user; failure owners must be agents. "
     "Designate owners for shared interfaces. Explain actual opportunities for parallelism. "
+    "Record unverified feasibility as an assumption or a scoped investigation task before "
+    "dependent implementation. Never claim that planned checks have already passed. "
     "You are proposing a workflow for user review. Return only JSON matching the schema."
 )
 
@@ -124,9 +128,9 @@ def normalize_model(value: str) -> str | None:
 
 
 def generate_design(state: DesignSession, output: Path, timeout: int) -> None:
-    check_source(state)
+    source = check_source(state)
     data = {
-        "project_name": approved_source(Path(state.source_file)).project_name,
+        "project_name": source.project_name,
         "approved_brief": state.source.brief.model_dump(),
         "initial_tasks": state.source.plan.model_dump(),
         "validation_feedback": state.validation_feedback,

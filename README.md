@@ -98,6 +98,58 @@ setting. Each response stores its stage and requested/reported model names, and 
 revision keeps its own model attribution even after you change future model choices. Older
 session files remain readable and display unknown model attribution where it was not recorded.
 
+## Stage 2: technical design and staged agent workflow
+
+Finish and approve a Stage 1 session, then pass its saved path to the architect:
+
+```sh
+orchestrator design plans/activity-session.json
+```
+
+The default output is beside the source, such as `plans/activity-session.design.json`.
+The same command reopens it and resumes a saved question or draft. Use `--output` to create
+a separate design, `--model` / `--architect-model` to choose the architect, and
+`--agent-model` to set the initial model choice for proposed agents. Enter `default` to
+use Codex's configuration. The architect initially inherits the Stage 1 planning model.
+
+The full review displays the approved requirements and exclusions, repository findings,
+components, interfaces, data flow, storage, technology choices, and staged delivery workflow.
+Each assignment includes the responsible agent, scope, exact owned files, required and optional
+context, model recommendation, selected model, skills, deliverables, checks, escalation,
+and handoff. Skill availability is reported from the presence of a named `SKILL.md` file.
+A missing or unverified skill remains a setup item.
+
+Each delivery stage has a verification gate. It specifies agent checks with expected results,
+required user tests, acceptance criteria, review and failure owners, and completion evidence.
+The merge policy calls for actual check commands/results against the tested commit, review of
+the combined stage changes, and any required user acceptance before merging. Dependent stages
+start after their prerequisites' verified merges. These are planned gates for the future
+execution runner. Stage 2 approval records approval of the design.
+
+At review, choose `approve`, `revise`, `models`, or `save`. The model menu lets you change the
+architect for future requests and the selected model for each proposed agent. Allocation
+changes create a fresh reviewable revision. At an architect question, use `:models` to change
+request defaults or `:save` to exit.
+
+Display a saved design without a model request:
+
+```sh
+orchestrator design plans/activity-session.json --show
+```
+
+Designs retain the approved Stage 1 revision and a fingerprint of its snapshot. If Stage 1
+is revised, approve its new revision and start a new design with a different `--output` path.
+The old design stays available as a historical artifact. Required project-file context must
+exist before approval. Invalid reference IDs, requirement coverage gaps, dependency cycles,
+unordered writes to a shared declared file, and missing dependencies on required upstream
+context are rejected. Validation feedback is saved for the next architect attempt.
+
+These structural checks operate on the declared design. Semantic scope decisions still need
+review, and worker permissions and verified merges belong to the later execution runner.
+The architect uses the existing read-only Codex adapter. Sessions under `plans/` are ignored by Git.
+
+See [Stage 2 manual checks](docs/stage2-testing.md) for a walkthrough and expected results.
+
 ## Create a starter plan
 
 ```sh

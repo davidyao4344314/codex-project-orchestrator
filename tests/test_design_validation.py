@@ -114,3 +114,43 @@ def test_context_file_blocker_and_symlink_escape(approved_session, technical_pay
         validate_design(
             TechnicalDesign.model_validate(technical_payload), source.brief, path.parent
         )
+
+
+def test_stage_dependencies_include_verification_before_downstream_work(
+    approved_session, technical_payload
+):
+    from codex_orchestrator.design_validation import task_graph
+
+    path, source = approved_session
+    second_stage = deepcopy(technical_payload["stages"][0])
+    second_stage.update(id="integration", title="Integration", depends_on=["core"])
+    technical_payload["stages"].append(second_stage)
+    second = deepcopy(technical_payload["tasks"][0])
+    second.update(id="integrate", stage_id="integration", owned_paths=["counter.py"])
+    second["context"] = [
+        {
+            "kind": "task_output",
+            "reference": "implement",
+            "required": True,
+            "reason": "Integrate verified work",
+            "missing_action": "Wait for core stage verification",
+        }
+    ]
+    technical_payload["tasks"].append(second)
+    design = TechnicalDesign.model_validate(technical_payload)
+    validate_design(design, source.brief, path.parent)
+    assert task_graph(design)["integrate"] == {"implement"}
+
+    technical_payload["stages"][0]["depends_on"] = ["integration"]
+    with pytest.raises(CodexError, match="cycle"):
+        validate_design(
+            TechnicalDesign.model_validate(technical_payload), source.brief, path.parent
+        )
+
+
+def test_stage_gate_cannot_omit_agent_checks(technical_payload):
+    from pydantic import ValidationError
+
+    technical_payload["stages"][0]["gate"]["agent_checks"] = []
+    with pytest.raises(ValidationError, match="at least 1"):
+        TechnicalDesign.model_validate(technical_payload)
