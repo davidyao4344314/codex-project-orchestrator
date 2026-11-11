@@ -7,13 +7,14 @@ from time import monotonic
 import typer
 
 from codex_orchestrator.codex import CodexError, codex_response
+from codex_orchestrator.design_display import show_design
 from codex_orchestrator.design_models import (
     DesignReply,
     DesignRevision,
     DesignSession,
     source_digest,
 )
-from codex_orchestrator.design_validation import validate_design
+from codex_orchestrator.design_validation import context_blockers, validate_design
 from codex_orchestrator.interactive import READ_ONLY, ask, model_label
 from codex_orchestrator.session import Answer, PlanningSession
 from codex_orchestrator.setup import ensure_codex
@@ -109,7 +110,9 @@ def prepare_design(
         state.architect_model = normalize_model(architect_model)
     if agent_model is not None:
         state.default_agent_model = normalize_model(agent_model)
-    state.save(output)
+    if architect_model is not None or agent_model is not None:
+        state.models_configured = architect_model is not None or state.models_configured
+        state.save(output)
     return state, output
 
 
@@ -175,14 +178,113 @@ def generate_design(state: DesignSession, output: Path, timeout: int) -> None:
     state.save(output)
 
 
+def choose_design_models(state: DesignSession, output: Path, *, allocations: bool) -> None:
+    fields = [("architect", "Architect", state.architect_model)]
+    if allocations:
+        fields.extend(
+            (f"agent:{agent}", f"Agent {agent}", model)
+            for agent, model in state.revisions[-1].agent_models.items()
+        )
+    else:
+        fields.append(("default agent", "Default agent", state.default_agent_model))
+    selected = {}
+    for name, label, current in fields:
+        value = ""
+        while not value:
+            value = typer.prompt(
+                f"{label} model ID (default = Codex configuration)", default=current or "default"
+            ).strip()
+        if value == ":save":
+            return
+        selected[name] = normalize_model(value)
+    state.architect_model = selected.pop("architect")
+    state.models_configured = True
+    if allocations:
+        current = state.revisions[-1]
+        allocations = {agent: selected[f"agent:{agent}"] for agent in current.agent_models}
+        if current.agent_models != allocations:
+            state.revisions.append(
+                DesignRevision(
+                    design=current.design,
+                    requested_model=current.requested_model,
+                    reported_model=current.reported_model,
+                    agent_models=allocations,
+                    elapsed_seconds=0,
+                    origin="model_allocation",
+                )
+            )
+            state.phase = "review"
+            state.approved_revision = None
+    else:
+        state.default_agent_model = selected["default agent"]
+    check_source(state)
+    state.save(output)
+
+
+def review_design(state: DesignSession, output: Path) -> bool:
+    validate_design(state.revisions[-1].design, state.source.brief, Path(state.project))
+    show_design(state)
+    if state.approved_revision is not None:
+        typer.echo(f"Technical-design revision {state.approved_revision} is approved.")
+    choices = "revise / models / save"
+    if state.phase == "review":
+        choices = "approve / " + choices
+    while True:
+        decision = ask(f"Review technical design [{choices}]")
+        if decision is None or decision.casefold() == "save":
+            return False
+        check_source(state)
+        if decision.casefold() in ("models", ":models"):
+            choose_design_models(state, output, allocations=True)
+            return True
+        if decision.casefold() == "approve" and state.phase == "review":
+            blockers = context_blockers(state.revisions[-1].design, Path(state.project))
+            if blockers:
+                for blocker in blockers:
+                    typer.echo(f"Approval blocked: {blocker}")
+                typer.echo("Resolve required context or revise the design before approval.")
+                continue
+            validate_design(state.revisions[-1].design, state.source.brief, Path(state.project))
+            state.phase = "approved"
+            state.approved_revision = len(state.revisions)
+            state.save(output)
+            typer.echo(
+                f"Approved technical-design revision {state.approved_revision}. "
+                "Stage checks remain planned until implementation supplies actual evidence."
+            )
+            return False
+        if decision.casefold() == "revise":
+            feedback = ask("What should change in the technical design?")
+            if feedback is None:
+                return False
+            state.answers.append(
+                Answer(prompt="Technical-design revision request", response=feedback)
+            )
+            state.phase = "draft"
+            state.approved_revision = None
+            state.save(output)
+            return True
+        typer.echo(f"Choose {choices}.")
+
+
 def run_design(state: DesignSession, output: Path, timeout: int) -> None:
     typer.echo(f"Technical-design session: {output}")
-    typer.echo("Type :save at a question to save and exit.")
+    typer.echo("Type :save to save and exit, or :models to change the architect model.")
+    needs_setup = True
     try:
-        if state.phase == "draft":
-            ensure_codex()
-        while state.phase == "draft":
+        while True:
             check_source(state)
+            if state.phase != "draft":
+                if not review_design(state, output):
+                    return
+                continue
+            if needs_setup:
+                ensure_codex()
+                needs_setup = False
+            if not state.models_configured:
+                choose_design_models(state, output, allocations=False)
+                if not state.models_configured:
+                    return
             if state.pending_question:
                 typer.echo(f"Question model: {state.pending_question_model or 'unrecorded'}")
                 if state.requires_requirement_change:
@@ -193,12 +295,14 @@ def run_design(state: DesignSession, output: Path, timeout: int) -> None:
                 answer = ask(state.pending_question)
                 if answer is None:
                     return
+                if answer == ":models":
+                    choose_design_models(state, output, allocations=False)
+                    continue
                 state.answers.append(Answer(prompt=state.pending_question, response=answer))
                 state.pending_question = None
                 state.pending_question_model = None
                 state.save(output)
             else:
                 generate_design(state, output, timeout)
-        typer.echo(f"Saved technical-design revision {len(state.revisions)} for review.")
     except typer.Abort:
         typer.echo("Technical-design session saved.")

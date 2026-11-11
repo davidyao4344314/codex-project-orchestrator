@@ -8,7 +8,10 @@ import typer
 from pydantic import ValidationError
 
 from codex_orchestrator.codex import CodexError, codex_plan
-from codex_orchestrator.design import prepare_design, run_design
+from codex_orchestrator.design import check_source, prepare_design, run_design
+from codex_orchestrator.design_display import show_design
+from codex_orchestrator.design_models import DesignSession
+from codex_orchestrator.design_validation import validate_design
 from codex_orchestrator.interactive import run_session, start_session
 from codex_orchestrator.models import PlanningMode, ProjectPlan
 from codex_orchestrator.planner import template_plan
@@ -176,9 +179,26 @@ def design(
         str | None, typer.Option(help="Default model ID for proposed agents, or default.")
     ] = None,
     timeout: Annotated[int, typer.Option(min=1, help="Architect timeout in seconds.")] = 300,
+    show: Annotated[
+        bool, typer.Option(help="Display a saved design without a model call.")
+    ] = False,
 ) -> None:
     """Design technical structure and agent responsibilities from approved requirements."""
     try:
+        if show:
+            if model is not None or agent_model is not None:
+                raise typer.BadParameter(
+                    "--show displays saved model choices. Omit model overrides."
+                )
+            path = (output or session_file.with_name(f"{session_file.stem}.design.json")).resolve()
+            state = DesignSession.load(path)
+            if Path(state.source_file).resolve() != session_file:
+                raise CodexError("This design belongs to a different Stage 1 session.")
+            check_source(state)
+            if state.revisions:
+                validate_design(state.revisions[-1].design, state.source.brief, Path(state.project))
+            show_design(state)
+            return
         state, path = prepare_design(
             session_file, output, architect_model=model, agent_model=agent_model
         )
