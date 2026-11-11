@@ -15,7 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "ruff>=0.9,<1"]
-web = ["streamlit>=1.50,<2"]
+web = ["streamlit>=1.67,<2"]
 
 [project.scripts]
 orchestrator = "codex_orchestrator.cli:app"

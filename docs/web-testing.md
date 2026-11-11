@@ -45,3 +45,20 @@ The complete suite also verifies the CLI and shared planning, context, and appro
 python -m pytest -q
 ruff check src examples tests
 ```
+
+## Stage feedback and explanations
+
+Each delivery stage offers Save stage feedback, Approve stage plan, and Revise stage
+with AI. Feedback is saved to the design session; requesting a revision sends that
+stage's feedback to the architect within the approved requirements. Dependencies may
+require related stages to change. Every new design revision needs fresh stage approvals.
+Saving change feedback also clears overall design approval. Stage-plan approval does
+not certify implementation, tests, or merges.
+
+Highlight ordinary design text with the mouse and choose Explain with AI from the popup.
+The explanation should describe the purpose, a beginner-friendly example, and verification,
+with model attribution. The expandable explanation box also accepts pasted text.
+Explanations use the architect model through the existing read-only Codex connection;
+they do not revise the design. Each click makes a model request. Selections are limited
+to 4000 characters. Tables use their own selection controls; copy a table passage into
+the text box if browser highlighting is unavailable.

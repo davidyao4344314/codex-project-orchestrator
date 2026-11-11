@@ -28,6 +28,7 @@ from codex_orchestrator.design_validation import (
     task_graph,
     validate_design,
 )
+from codex_orchestrator.explain import explain_selection
 from codex_orchestrator.interactive import (
     approve_plan,
     collect_brief,
@@ -37,7 +38,9 @@ from codex_orchestrator.interactive import (
     revise_plan,
     submit_answer,
 )
+from codex_orchestrator.selection import selection_menu
 from codex_orchestrator.session import PlanningSession
+from codex_orchestrator.stage_review import current_review, review_stage
 
 ROOT = Path(__file__).resolve().parents[2]
 PLANS = Path(os.environ.get("ORCHESTRATOR_PLANS", ROOT / "plans")).expanduser().resolve()
@@ -256,7 +259,7 @@ def requirement_view(session, path):
                 action("Revising the requirements…", revise)
 
 
-def workflow_view(state):
+def workflow_view(state, path):
     revision = state.revisions[-1]
     design = revision.design
     project = Path(state.project)
@@ -332,6 +335,47 @@ def workflow_view(state):
         stage = stages[stage_id]
         with st.expander(f"{number}. {stage.title}", expanded=True):
             st.write(stage.goal)
+            review = current_review(state, stage.id)
+            if review:
+                st.success(
+                    "Stage plan approved" if review.approved else "Feedback saved · review needed"
+                )
+                if review.feedback:
+                    st.write(review.feedback)
+            st.caption(
+                "Approval covers this stage's plan for this revision. "
+                "Implementation checks remain pending."
+            )
+            with st.form(f"stage_review_{path.name}_{len(state.revisions)}_{stage.id}"):
+                feedback = st.text_area(
+                    "Stage feedback", key=f"feedback_{path.name}_{stage.id}_{len(state.revisions)}"
+                )
+                save = st.form_submit_button("Save stage feedback")
+                approve = st.form_submit_button("Approve stage plan")
+                revise = st.form_submit_button("Revise stage with AI")
+                if save or approve:
+                    action(
+                        "Saving stage review…",
+                        lambda stage=stage, feedback=feedback, approve=approve: review_stage(
+                            state, path, stage.id, feedback, approved=approve
+                        ),
+                    )
+                if revise:
+
+                    def revise_stage(stage=stage, feedback=feedback):
+                        review_stage(state, path, stage.id, feedback)
+                        revise_design(
+                            state,
+                            path,
+                            f"Feedback for stage {stage.id} ({stage.title}): {feedback}. "
+                            "Focus on this stage; preserve other stages unless "
+                            "dependencies require changes. "
+                            "Keep within the approved requirements.",
+                        )
+                        generate_design(state, path, 300)
+
+                    action("Revising stage…", revise_stage)
+
             if stage.depends_on:
                 st.caption("Starts after verified merge of " + ", ".join(stage.depends_on))
             for task in ordered_tasks:
@@ -446,7 +490,27 @@ def design_view(session, source_path):
         if state.validation_feedback:
             st.warning("The previous draft needs correction. Continue to send validation feedback.")
         return
-    workflow_view(state)
+    selected = selection_menu(
+        key=f"selection_{path.name}_{len(state.revisions)}", on_selected_change=lambda: None
+    )
+    with st.expander("Explain part of this design"):
+        st.caption("Highlight design text to reveal Explain with AI, or paste text here.")
+        excerpt = st.text_area("Text to explain", key=f"excerpt_{path.name}")
+        request = st.button("Explain text")
+    text = selected.selected or (excerpt if request else None)
+    if text:
+
+        def explain():
+            answer, model = explain_selection(state, text)
+            st.session_state[f"explanation_{path.name}"] = (text, answer, model)
+
+        action("Explaining with Codex…", explain)
+    if explanation := st.session_state.get(f"explanation_{path.name}"):
+        st.info(explanation[1])
+        st.caption(f"Explanation model · {explanation[2]}")
+        with st.expander("Explained selection"):
+            st.write(explanation[0])
+    workflow_view(state, path)
     blockers = context_blockers(state.revisions[-1].design, Path(state.project))
     for blocker in blockers:
         st.warning(blocker)
