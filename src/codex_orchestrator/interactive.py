@@ -63,6 +63,31 @@ def start_session(
     idea = initial_idea or ask("What would you like to build?")
     if idea is None:
         return
+    session = create_session(
+        project,
+        name,
+        idea,
+        path,
+        intake_model=intake_model,
+        planning_model=planning_model,
+        timeout=timeout,
+    )
+    run_session(session, path)
+
+
+def create_session(
+    project: Path,
+    name: str,
+    idea: str,
+    path: Path,
+    *,
+    intake_model: str | None = None,
+    planning_model: str | None = None,
+    timeout: int = 300,
+) -> PlanningSession:
+    project = project.expanduser().resolve()
+    if not project.is_dir():
+        raise ValueError("Choose an existing project directory.")
     session = PlanningSession(
         project=str(project),
         project_name=name,
@@ -72,7 +97,42 @@ def start_session(
         answers=[Answer(prompt="What would you like to build?", response=idea)],
     )
     session.save(path, new=True)
-    run_session(session, path)
+    return session
+
+
+def submit_answer(
+    session: PlanningSession, path: Path, answer: str, *, draft_now: bool = False
+) -> None:
+    if session.pending_question is None:
+        raise ValueError("There is no question waiting for an answer.")
+    if draft_now and session.phase == "intake":
+        session.finish_intake = True
+    else:
+        session.answers.append(Answer(prompt=session.pending_question, response=answer))
+        if session.phase == "planning":
+            session.phase = "intake"
+            session.finish_intake = True
+    session.pending_question = None
+    session.pending_question_model = None
+    session.save(path)
+
+
+def approve_plan(session: PlanningSession, path: Path) -> None:
+    if session.phase != "review" or not session.revisions or session.pending_question:
+        raise ValueError("A complete plan must be in review before approval.")
+    session.phase = "approved"
+    session.approved_revision = len(session.revisions)
+    session.save(path)
+
+
+def revise_plan(session: PlanningSession, path: Path, feedback: str) -> None:
+    if session.phase not in ("review", "approved"):
+        raise ValueError("Finish a draft before requesting a revision.")
+    session.answers.append(Answer(prompt="Plan revision request", response=feedback))
+    session.phase = "intake"
+    session.finish_intake = False
+    session.approved_revision = None
+    session.save(path)
 
 
 def ask(prompt: str) -> str | None:
@@ -161,9 +221,7 @@ def review_plan(session: PlanningSession, path: Path) -> bool:
         if decision is None or decision.casefold() == "save":
             return False
         if decision.casefold() == "approve" and session.phase == "review":
-            session.phase = "approved"
-            session.approved_revision = len(session.revisions)
-            session.save(path)
+            approve_plan(session, path)
             typer.echo(f"Approved revision {session.approved_revision}.")
             return False
         if decision.casefold() in ("models", ":models"):
@@ -174,11 +232,7 @@ def review_plan(session: PlanningSession, path: Path) -> bool:
             feedback = ask("What should change in the plan?")
             if feedback is None:
                 return False
-            session.answers.append(Answer(prompt="Plan revision request", response=feedback))
-            session.phase = "intake"
-            session.finish_intake = False
-            session.approved_revision = None
-            session.save(path)
+            revise_plan(session, path, feedback)
             return True
         typer.echo(f"Choose {choices}.")
 
@@ -197,16 +251,7 @@ def answer_question(session: PlanningSession, path: Path) -> bool:
         choose_models(session)
         session.save(path)
         return True
-    if answer == ":plan" and session.phase == "intake":
-        session.finish_intake = True
-    else:
-        session.answers.append(Answer(prompt=question, response=answer))
-        if session.phase == "planning":
-            session.phase = "intake"
-            session.finish_intake = True
-    session.pending_question = None
-    session.pending_question_model = None
-    session.save(path)
+    submit_answer(session, path, answer, draft_now=answer == ":plan")
     return True
 
 

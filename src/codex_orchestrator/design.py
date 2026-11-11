@@ -201,27 +201,79 @@ def choose_design_models(state: DesignSession, output: Path, *, allocations: boo
         if value == ":save":
             return
         selected[name] = normalize_model(value)
-    state.architect_model = selected.pop("architect")
-    state.models_configured = True
+    architect = selected.pop("architect")
     if allocations:
-        current = state.revisions[-1]
-        allocations = {agent: selected[f"agent:{agent}"] for agent in current.agent_models}
-        if current.agent_models != allocations:
-            state.revisions.append(
-                DesignRevision(
-                    design=current.design,
-                    requested_model=current.requested_model,
-                    reported_model=current.reported_model,
-                    agent_models=allocations,
-                    elapsed_seconds=0,
-                    origin="model_allocation",
-                )
-            )
-            state.phase = "review"
-            state.approved_revision = None
+        allocations_by_agent = {
+            agent: selected[f"agent:{agent}"] for agent in state.revisions[-1].agent_models
+        }
+        update_design_models(state, output, architect, allocations_by_agent)
     else:
+        state.architect_model = architect
+        state.models_configured = True
         state.default_agent_model = selected["default agent"]
+        check_source(state)
+        state.save(output)
+
+
+def update_design_models(
+    state: DesignSession,
+    output: Path,
+    architect: str | None,
+    allocations: dict[str, str | None],
+) -> None:
     check_source(state)
+    current = state.revisions[-1]
+    if set(allocations) != set(current.agent_models):
+        raise ValueError("Choose a model for every assigned agent.")
+    if current.agent_models != allocations:
+        state.revisions.append(
+            DesignRevision(
+                design=current.design,
+                requested_model=current.requested_model,
+                reported_model=current.reported_model,
+                agent_models=allocations,
+                elapsed_seconds=0,
+                origin="model_allocation",
+            )
+        )
+        state.phase = "review"
+        state.approved_revision = None
+    state.architect_model = architect
+    state.models_configured = True
+    state.save(output)
+
+
+def approve_design(state: DesignSession, output: Path) -> None:
+    check_source(state)
+    if state.phase != "review" or not state.revisions:
+        raise ValueError("A complete design must be in review before approval.")
+    current = state.revisions[-1].design
+    blockers = context_blockers(current, Path(state.project))
+    if blockers:
+        raise ValueError("Required context must be resolved before approval. " + " ".join(blockers))
+    validate_design(current, state.source.brief, Path(state.project))
+    state.phase = "approved"
+    state.approved_revision = len(state.revisions)
+    state.save(output)
+
+
+def revise_design(state: DesignSession, output: Path, feedback: str) -> None:
+    check_source(state)
+    if state.phase not in ("review", "approved"):
+        raise ValueError("Finish a draft before requesting a revision.")
+    state.answers.append(Answer(prompt="Technical-design revision request", response=feedback))
+    state.phase = "draft"
+    state.approved_revision = None
+    state.save(output)
+
+
+def submit_design_answer(state: DesignSession, output: Path, answer: str) -> None:
+    check_source(state)
+    if not state.pending_question:
+        raise ValueError("There is no architect question waiting for an answer.")
+    state.answers.append(Answer(prompt=state.pending_question, response=answer))
+    state.pending_question = None
+    state.pending_question_model = None
     state.save(output)
 
 
@@ -248,10 +300,7 @@ def review_design(state: DesignSession, output: Path) -> bool:
                     typer.echo(f"Approval blocked: {blocker}")
                 typer.echo("Resolve required context or revise the design before approval.")
                 continue
-            validate_design(state.revisions[-1].design, state.source.brief, Path(state.project))
-            state.phase = "approved"
-            state.approved_revision = len(state.revisions)
-            state.save(output)
+            approve_design(state, output)
             typer.echo(
                 f"Approved technical-design revision {state.approved_revision}. "
                 "Stage checks remain planned until implementation supplies actual evidence."
@@ -302,10 +351,7 @@ def run_design(state: DesignSession, output: Path, timeout: int) -> None:
                 if answer == ":models":
                     choose_design_models(state, output, allocations=False)
                     continue
-                state.answers.append(Answer(prompt=state.pending_question, response=answer))
-                state.pending_question = None
-                state.pending_question_model = None
-                state.save(output)
+                submit_design_answer(state, output, answer)
             else:
                 generate_design(state, output, timeout)
     except typer.Abort:
