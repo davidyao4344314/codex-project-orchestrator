@@ -62,3 +62,25 @@ Explanations use the architect model through the existing read-only Codex connec
 they do not revise the design. Each click makes a model request. Selections are limited
 to 4000 characters. Tables use their own selection controls; copy a table passage into
 the text box if browser highlighting is unavailable.
+
+## Project home and agent dashboard
+
+1. Choose Home. Expect project cards; open Reading list using Open dashboard.
+2. Expect Frontend, Backend, and Database panels showing the assignments declared by
+   the current design. Empty areas should say no dedicated tasks. A single owner may
+   cover several areas; shared and integration tasks appear in their own list.
+3. Choose Open agent workspace or select an assignment. Inspect Context: expect the
+   agent's responsibility, skills, boundaries, assigned requirements, declared references,
+   and missing-context actions. This is supplied prompt context, not a filesystem sandbox.
+4. In Agent chat, ask “Explain your approach and show a small proposed Python example.”
+   Expect a read-only response and its model attribution. Reopen the assignment: the
+   conversation should persist. Other tasks and design revisions have separate histories.
+5. Open Code output. Expect an honest empty state for execution-generated code. If a file
+   already exists in that assignment's owned paths, choose it and View source. The preview
+   shows existing local source; it does not claim that an agent generated it.
+6. Returning to requirements or technical design should preserve the existing approval,
+   feedback, revision, and model-allocation controls.
+
+The dashboard does not launch implementation agents or report invented running tasks.
+Agent execution, streaming tool activity, generated diffs, and test/merge status remain
+future work. Chat requests use the assigned agent model through the existing Codex login.

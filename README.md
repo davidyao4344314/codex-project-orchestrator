@@ -296,3 +296,15 @@ resuming after a failed model call.
 
 See the [project roadmap](docs/roadmap.md) for the Workflow Analyzer, Task Planner,
 Performance Optimizer, and Evaluation Engine.
+
+## Project dashboard
+
+Home lists saved projects. Each project's Dashboard groups planned assignments into
+Frontend, Backend, and Database, with shared/integration work listed separately.
+Open an assignment to inspect its supplied context, skills, boundaries, model, and
+saved read-only agent conversation. Agents can explain their plan and propose code;
+implementation execution is a later stage. Code output also offers a read-only preview
+of existing source within that assignment's owned paths. Conversations stay in ignored
+local session files and are separated by assignment and design revision.
+
+See [browser testing instructions](docs/web-testing.md) for expected results.

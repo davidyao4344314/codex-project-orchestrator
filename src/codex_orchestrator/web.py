@@ -11,6 +11,7 @@ import streamlit as st
 from pydantic import ValidationError
 
 from codex_orchestrator.codex import CodexError, find_codex
+from codex_orchestrator.dashboard import dashboard
 from codex_orchestrator.design import (
     approve_design,
     check_source,
@@ -168,6 +169,7 @@ def new_project():
                 planning_model=normalize_model(planning),
             )
             st.session_state.active = str(path)
+            st.session_state[f"view_{path.name}"] = "Requirements"
 
         action("Saving your project…", create)
 
@@ -575,8 +577,13 @@ def main():
     PLANS.mkdir(parents=True, exist_ok=True)
     st.sidebar.title("◈ Workbench")
     st.sidebar.caption("PROJECT PLANNER")
+    if st.sidebar.button("Home", use_container_width=True):
+        st.session_state.active = None
+        st.session_state.home = True
+        st.rerun()
     if st.sidebar.button("＋ New project", use_container_width=True):
         st.session_state.active = None
+        st.session_state.home = False
         for key in ("new_name", "new_project", "new_idea"):
             st.session_state.pop(key, None)
         st.rerun()
@@ -602,6 +609,19 @@ def main():
         st.caption("Your saved progress is available. Resolve the issue and retry.")
     active = st.session_state.get("active")
     if not active:
+        if st.session_state.get("home", True) and sessions:
+            st.title("Your projects")
+            st.write("Open a project to see its agents, assignments, context, and code workspace.")
+            for project_path, project_session in sessions:
+                with st.container(border=True):
+                    st.subheader(project_session.project_name)
+                    st.caption(project_session.project)
+                    st.write(f"Requirements · {project_session.phase}")
+                    if st.button("Open dashboard", key=f"home_{project_path.name}"):
+                        st.session_state.active = str(project_path)
+                        st.session_state[f"view_{project_path.name}"] = "Dashboard"
+                        st.rerun()
+            return
         new_project()
         return
     path = Path(active)
@@ -611,12 +631,14 @@ def main():
         st.caption(session.project)
         view = st.radio(
             "Stage",
-            ["Requirements", "Technical design"],
+            ["Dashboard", "Requirements", "Technical design"],
             horizontal=True,
             label_visibility="collapsed",
             key=f"view_{path.name}",
         )
-        if view == "Requirements":
+        if view == "Dashboard":
+            dashboard(session, path, action)
+        elif view == "Requirements":
             requirement_view(session, path)
         else:
             design_view(session, path)

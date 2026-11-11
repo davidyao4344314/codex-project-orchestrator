@@ -88,6 +88,13 @@ def test_browser_requirements_to_approved_design(
     assert not app.exception
     output = next((tmp_path / "plans").glob("*.design.json"))
     assert DesignSession.load(output).phase == "approved"
+    app.radio[0].set_value("Dashboard").run()
+    assert not app.exception
+    assert {"Frontend", "Backend", "Database"} <= {h.value for h in app.subheader}
+    assert any("implementation has not started" in info.value for info in app.info)
+    assert app.selectbox[0].label == "Assignment"
+    app.radio[0].set_value("Technical design").run()
+    assert not app.exception
     text_input(app, "Python developer model").set_value("another-model")
     button(app, "Save model allocations").click().run()
     assert not app.exception
