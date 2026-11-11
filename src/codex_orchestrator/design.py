@@ -13,6 +13,7 @@ from codex_orchestrator.design_models import (
     DesignSession,
     source_digest,
 )
+from codex_orchestrator.design_validation import validate_design
 from codex_orchestrator.interactive import READ_ONLY, ask, model_label
 from codex_orchestrator.session import Answer, PlanningSession
 from codex_orchestrator.setup import ensure_codex
@@ -125,6 +126,7 @@ def generate_design(state: DesignSession, output: Path, timeout: int) -> None:
         "project_name": approved_source(Path(state.source_file)).project_name,
         "approved_brief": state.source.brief.model_dump(),
         "initial_tasks": state.source.plan.model_dump(),
+        "validation_feedback": state.validation_feedback,
         "clarifications": [answer.model_dump() for answer in state.answers],
         "previous_design": (state.revisions[-1].design.model_dump() if state.revisions else None),
     }
@@ -147,6 +149,13 @@ def generate_design(state: DesignSession, output: Path, timeout: int) -> None:
         state.pending_question_model = model_label(state.architect_model, actual_model)
         state.requires_requirement_change = reply.requires_requirement_change
     else:
+        try:
+            validate_design(reply.design, state.source.brief, Path(state.project))
+        except CodexError as exc:
+            state.validation_feedback = [str(exc)]
+            state.save(output)
+            raise
+        state.validation_feedback = []
         previous_models = state.revisions[-1].agent_models if state.revisions else {}
         allocations = {
             agent.id: previous_models.get(agent.id, state.default_agent_model)

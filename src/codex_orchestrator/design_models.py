@@ -156,6 +156,7 @@ class DesignSession(SessionData):
     pending_question: Text | None = None
     pending_question_model: Text | None = None
     requires_requirement_change: bool = False
+    validation_feedback: list[Text] = Field(default_factory=list)
     revisions: list[DesignRevision] = Field(default_factory=list)
     approved_revision: int | None = None
 
