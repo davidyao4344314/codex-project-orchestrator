@@ -16,3 +16,5 @@ auth.json
 .codex/sessions/
 .codex/archived_sessions/
 .DS_Store
+
+.streamlit/secrets.toml

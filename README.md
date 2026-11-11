@@ -46,6 +46,31 @@ Codex handles credential storage. Setup keeps credentials out of the project fil
 If you postpone setup, resume your saved session with `orchestrator resume` and its JSON path.
 Setup is also available as a separate command so you can check it before starting a session.
 
+## Local browser interface
+
+Install the optional interface and start it from the repository directory:
+
+```sh
+python -m pip install -e '.[web]'
+orchestrator web
+```
+
+Open [the local planner](http://127.0.0.1:8501) on this computer. The server binds to loopback. The browser uses
+the same session files, Codex connection, validation, and approval actions as the terminal.
+Start a session, answer questions, approve Stage 1, then switch to Technical design.
+
+The “Try sample project” button copies a reading-list starter into an isolated Git repository
+under the ignored `plans/samples/` directory and fills in its brief. Create the session and
+choose Continue with Codex. The sample asks for a Python/Streamlit/SQLite reading tracker
+with book entry, status filters, and persistent storage.
+
+Use Check connection in the sidebar to inspect Codex sign-in. The browser can open Codex's
+sign-in flow if necessary. For CLI installation, run `orchestrator setup` in the terminal.
+Model requests are triggered by explicit actions. Reloading a saved plan makes no model request.
+
+The workflow remains at planning and technical-design approval. Stage checks are displayed
+as planned verification gates. Generated implementation and merge execution are later work.
+
 ## Stage 1: interactive planning
 
 With Codex CLI installed and signed in, start a session from your terminal:
