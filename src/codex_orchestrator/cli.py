@@ -1,5 +1,7 @@
 """Command-line entry point."""
 
+import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -206,3 +208,32 @@ def design(
     except (OSError, UnicodeError, ValidationError, CodexError) as exc:
         typer.echo(f"Could not create technical design: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+
+
+@app.command()
+def web(
+    port: Annotated[int, typer.Option(min=1024, max=65535, help="Local browser port.")] = 8501,
+) -> None:
+    """Open the local browser interface."""
+    if importlib.util.find_spec("streamlit") is None:
+        typer.echo("Install the web interface with: python -m pip install -e '.[web]'", err=True)
+        raise typer.Exit(code=1)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "streamlit",
+            "run",
+            str(Path(__file__).with_name("web.py")),
+            "--server.address",
+            "127.0.0.1",
+            "--server.port",
+            str(port),
+            "--server.headless",
+            "true",
+            "--browser.gatherUsageStats",
+            "false",
+        ],
+        check=False,
+    )
+    raise typer.Exit(code=result.returncode)
