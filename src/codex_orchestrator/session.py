@@ -12,6 +12,28 @@ from codex_orchestrator.models import PlanContent, Task, Text, Workstream
 class SessionData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    @classmethod
+    def load(cls, path: Path) -> Self:
+        return cls.model_validate_json(path.read_bytes())
+
+    def save(self, path: Path, *, new: bool = False) -> None:
+        """Publish a complete JSON file, with exclusive creation for new sessions."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = None
+        try:
+            with NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=path.parent, delete=False
+            ) as stream:
+                temporary = Path(stream.name)
+                stream.write(self.model_dump_json(indent=2) + "\n")
+            if new:
+                path.hardlink_to(temporary)
+            else:
+                temporary.replace(path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
 
 class Brief(SessionData):
     goal: Text
@@ -101,25 +123,3 @@ class PlanningSession(SessionData):
         if self.approved_revision != expected_approval:
             raise ValueError("Approval must refer to the current approved revision")
         return self
-
-    @classmethod
-    def load(cls, path: Path) -> "PlanningSession":
-        return cls.model_validate_json(path.read_bytes())
-
-    def save(self, path: Path, *, new: bool = False) -> None:
-        """Publish a complete JSON file, with exclusive creation for new sessions."""
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = None
-        try:
-            with NamedTemporaryFile(
-                mode="w", encoding="utf-8", dir=path.parent, delete=False
-            ) as stream:
-                temporary = Path(stream.name)
-                stream.write(self.model_dump_json(indent=2) + "\n")
-            if new:
-                path.hardlink_to(temporary)
-            else:
-                temporary.replace(path)
-        finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
