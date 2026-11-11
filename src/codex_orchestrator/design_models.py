@@ -142,7 +142,15 @@ def source_digest(revision: Revision) -> str:
     return hashlib.sha256(revision.model_dump_json().encode()).hexdigest()
 
 
+class StageReview(SessionData):
+    revision: int = Field(ge=1)
+    stage_id: Text
+    feedback: str
+    approved: bool = False
+
+
 class DesignSession(SessionData):
+    stage_reviews: list[StageReview] = Field(default_factory=list)
     schema_version: Literal[1] = 1
     source_file: Text
     project: Text
