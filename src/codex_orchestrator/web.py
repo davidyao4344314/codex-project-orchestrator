@@ -267,7 +267,7 @@ def workflow_view(state, path):
     project = Path(state.project)
     st.write(design.overview)
     st.caption(
-        f"Design revision {len(state.revisions)} · Architect response · "
+        f"Design revision {len(state.revisions)} · {revision.origin.replace('_', ' ')} · "
         f"{model_label(revision.requested_model, revision.reported_model)}"
     )
     with st.expander("Technical structure", expanded=True):

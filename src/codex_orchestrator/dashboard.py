@@ -9,8 +9,12 @@ from pydantic import Field
 from codex_orchestrator.codex import CodexError, codex_response
 from codex_orchestrator.design import check_source
 from codex_orchestrator.design_models import DesignSession
+from codex_orchestrator.execution import is_busy, runs
+from codex_orchestrator.reassignment import reassign
+from codex_orchestrator.run_view import run_panel
 from codex_orchestrator.session import SessionData
 from codex_orchestrator.stage_review import current_review
+from codex_orchestrator.task_board import board
 
 AREAS = {"frontend": "Frontend", "backend": "Backend", "database": "Database"}
 
@@ -147,9 +151,33 @@ def dashboard(session, source_path, action):
         return
     design = state.revisions[-1].design
     st.write(design.overview)
-    st.info("Planning workspace · Agent implementation has not started. Chats discuss the plan.")
+    st.info("Start an approved assignment below to run Codex. Plan chat remains read-only.")
     st.caption(f"Design revision {len(state.revisions)} · {state.phase}")
     agents = {a.id: a for a in design.agents}
+    latest = {r.task_id: r for r in runs(path) if r.revision == len(state.revisions)}
+    busy = is_busy(state.project)
+    st.subheader("Agent task board")
+    st.caption(
+        "Drag a task to another agent. Reassignment creates a new design revision for review."
+    )
+    moved = board(
+        key=f"board_{path.name}_{len(state.revisions)}",
+        data={
+            "agents": [{"id": a.id, "role": a.role} for a in design.agents],
+            "tasks": [{"id": t.id, "title": t.title, "agent_id": t.agent_id} for t in design.tasks],
+            "busy": busy,
+        },
+        on_move_change=lambda: None,
+    )
+    if moved.move:
+        action(
+            "Reassigning task…",
+            lambda: reassign(state, path, moved.move["task"], moved.move["agent"]),
+        )
+    if busy:
+        st.warning(
+            "A project run is active. Stop it before reassigning tasks or starting another run."
+        )
     for column, (area, label) in zip(st.columns(3), AREAS.items(), strict=True):
         with column:
             with st.container(border=True):
@@ -163,6 +191,8 @@ def dashboard(session, source_path, action):
                 for task in tasks:
                     st.markdown(f"**{task.title}**")
                     st.caption(f"{agents[task.agent_id].role} · {task.stage_id}")
+                    if task.id in latest:
+                        st.caption("Execution · " + latest[task.id].status)
                     review = current_review(state, task.stage_id)
                     st.write(
                         "Plan approved" if review and review.approved else "Plan awaiting review"
@@ -189,8 +219,30 @@ def dashboard(session, source_path, action):
     task = by_id[selected]
     agent = agents[task.agent_id]
     model = state.revisions[-1].agent_models[agent.id] or "Codex default"
-    st.caption(f"{agent.role} · {model} · {task.workstream} · Not started")
-    chat, context, code = st.tabs(["Agent chat", "Context", "Code output"])
+    status = latest[task.id].status if task.id in latest else "Not started"
+    st.caption(f"{agent.role} · {model} · {task.workstream} · {status}")
+    with st.expander("Reassign this task or create another agent"):
+        with st.form(f"assign_{path.name}_{len(state.revisions)}_{task.id}"):
+            destination = st.selectbox(
+                "Destination agent", list(agents), format_func=lambda i: agents[i].role
+            )
+            role = st.text_input("New agent role (optional)")
+            new_model = st.text_input("New agent model", value="default")
+            if st.form_submit_button("Reassign task", disabled=busy):
+                action(
+                    "Reassigning task…",
+                    lambda: reassign(
+                        state,
+                        path,
+                        task.id,
+                        destination,
+                        new_role=role or None,
+                        model=None if new_model == "default" else new_model,
+                    ),
+                )
+    with st.expander("Implementation and Codex chat", expanded=True):
+        run_panel(state, path, task, task_context(state, task), action)
+    chat, context, code = st.tabs(["Plan discussion", "Context", "Code output"])
     with context:
         st.write("This is the assignment context supplied to this agent's chat.")
         st.caption(
@@ -231,7 +283,10 @@ def dashboard(session, source_path, action):
             if st.form_submit_button("Send to agent"):
                 action("Agent is responding…", lambda: ask_agent(state, path, task, question))
     with code:
-        st.info("No execution-generated code yet. Proposed snippets appear in Agent chat.")
+        st.info(
+            "Implementation output and file-change events appear above. "
+            "The source preview below shows files currently on disk."
+        )
         st.write("Existing source in assigned paths")
         files = source_files(Path(state.project), task.owned_paths)
         if not files:

@@ -91,8 +91,8 @@ def test_browser_requirements_to_approved_design(
     app.radio[0].set_value("Dashboard").run()
     assert not app.exception
     assert {"Frontend", "Backend", "Database"} <= {h.value for h in app.subheader}
-    assert any("implementation has not started" in info.value for info in app.info)
-    assert app.selectbox[0].label == "Assignment"
+    assert any("Start an approved assignment" in info.value for info in app.info)
+    assert any(s.label == "Assignment" for s in app.selectbox)
     app.radio[0].set_value("Technical design").run()
     assert not app.exception
     text_input(app, "Python developer model").set_value("another-model")
