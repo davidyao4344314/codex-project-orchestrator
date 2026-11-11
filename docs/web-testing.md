@@ -84,3 +84,35 @@ the text box if browser highlighting is unavailable.
 The dashboard does not launch implementation agents or report invented running tasks.
 Agent execution, streaming tool activity, generated diffs, and test/merge status remain
 future work. Chat requests use the assigned agent model through the existing Codex login.
+
+## Implementation, task moves, and native Codex chat
+
+These checks supersede the earlier planning-only dashboard checks above.
+Use a disposable sample project: implementation runs make real edits through your Codex login.
+
+1. Approve the technical design and the stage plan containing your first assignment. In its
+   dashboard workspace choose Start implementation. Starting without either approval should
+   produce a helpful error and leave the project unchanged.
+2. Expect starting/running status, a recorded thread ID, and live Codex messages/tool events.
+   Open Exact context sent to Codex: inspect and download the full supplied prompt.
+3. Choose Open chat in Codex. Your installed desktop app should open that persistent chat,
+   with the assignment context in its initial user message. This native routing is a manual
+   integration check; automated tests validate the launcher arguments with a mocked launcher.
+4. Try starting another task or reassigning while the run is active: it should be blocked.
+   Stop run should reach stopped before the project unlocks. Existing code changes remain.
+5. If the design has a single agent, use Reassign this task or create another agent to add
+   a role/model. Then drag a task between the two agent lanes, or use the destination selector.
+   Expect a new reviewable revision, fresh approvals required, preserved context/run history,
+   and updated assignment ownership. Review copied skills and boundaries before approval.
+6. Finish a run. Inspect its actual tool output and source files; perform the required manual
+   tests. Only then select the verification checkbox and Accept verification. A dependent
+   task must remain blocked until prerequisite tasks have accepted verification. Merge/review
+   evidence is still a human responsibility; no automatic merge occurs.
+7. Reload the page. Expect persisted run history, code files, and supplied context. Use the run
+   selector to distinguish historical revisions from current work. Opening Codex adds its own
+   configured instructions; our prompt preview shows only the context supplied by this app.
+
+Automated runner tests use local fake Codex subprocesses and make no model requests. They
+exercise approval gates, project locks, event persistence, success/failure status, cancellation,
+reassignment revisions, and native chat URL construction. Browser interaction and native app
+routing should be checked manually using this checklist.

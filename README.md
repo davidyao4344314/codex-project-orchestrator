@@ -1,8 +1,8 @@
 # Codex Project Orchestrator
 
 A Python command-line program for planning frontend, backend, database, and integration work.
-All application code is Python. The first milestone is planning: the program saves tasks and
-their dependencies for review. Task execution and multiagent coordination come later.
+The backend is Python, with small browser components for selection and drag-and-drop.
+The program saves reviewable designs and can run one approved assignment at a time in Codex.
 
 ## Stack
 
@@ -68,8 +68,8 @@ Use Check connection in the sidebar to inspect Codex sign-in. The browser can op
 sign-in flow if necessary. For CLI installation, run `orchestrator setup` in the terminal.
 Model requests are triggered by explicit actions. Reloading a saved plan makes no model request.
 
-The workflow remains at planning and technical-design approval. Stage checks are displayed
-as planned verification gates. Generated implementation and merge execution are later work.
+Stage checks are displayed as planned verification gates. The Dashboard can execute one
+approved assignment at a time. Verification requires explicit user acceptance; merging is manual.
 
 ## Stage 1: interactive planning
 
@@ -148,8 +148,9 @@ Each delivery stage has a verification gate. It specifies agent checks with expe
 required user tests, acceptance criteria, review and failure owners, and completion evidence.
 The merge policy calls for actual check commands/results against the tested commit, review of
 the combined stage changes, and any required user acceptance before merging. Dependent stages
-start after their prerequisites' verified merges. These are planned gates for the future
-execution runner. Stage 2 approval records approval of the design.
+are described by the plan as starting after verified merges. The initial runner enforces
+accepted prerequisite verification; merge evidence still needs human review. Stage 2 approval
+records approval of the design.
 
 At review, choose `approve`, `revise`, `models`, or `save`. The model menu lets you change the
 architect for future requests and the selected model for each proposed agent. Allocation
@@ -170,7 +171,8 @@ unordered writes to a shared declared file, and missing dependencies on required
 context are rejected. Validation feedback is saved for the next architect attempt.
 
 These structural checks operate on the declared design. Semantic scope decisions still need
-review, and worker permissions and verified merges belong to the later execution runner.
+review. The runner uses the workspace-write sandbox, which permits project-wide writes;
+declared owned paths remain instructions. Verified merges still require human review.
 The architect uses the existing read-only Codex adapter. Sessions under `plans/` are ignored by Git.
 
 See [Stage 2 manual checks](docs/stage2-testing.md) for a walkthrough and expected results.
@@ -291,7 +293,7 @@ resuming after a failed model call.
 ## Next increments
 
 1. Add `status` to read a saved plan and show which tasks have their prerequisites satisfied.
-2. Add an explicit command to run one selected task and record its result.
+2. Extend the web runner with CLI execution controls and richer review/merge evidence.
 3. Add independent workers and Git worktrees once single-task execution is reliable.
 
 See the [project roadmap](docs/roadmap.md) for the Workflow Analyzer, Task Planner,
@@ -302,9 +304,39 @@ Performance Optimizer, and Evaluation Engine.
 Home lists saved projects. Each project's Dashboard groups planned assignments into
 Frontend, Backend, and Database, with shared/integration work listed separately.
 Open an assignment to inspect its supplied context, skills, boundaries, model, and
-saved read-only agent conversation. Agents can explain their plan and propose code;
-implementation execution is a later stage. Code output also offers a read-only preview
+saved read-only plan discussion. Start implementation runs from the same workspace.
+Code output also offers a read-only preview
 of existing source within that assignment's owned paths. Conversations stay in ignored
 local session files and are separated by assignment and design revision.
 
 See [browser testing instructions](docs/web-testing.md) for expected results.
+
+## Implementation and Codex chats
+
+Approve the technical design and the chosen stage's plan, then choose Start implementation.
+The runner uses persistent `codex exec --json` sessions with the workspace-write sandbox,
+existing Codex sign-in, and the assigned model. Only one task can write in a project at a time.
+The run panel refreshes every two seconds and shows events, agent output, status, and the
+exact supplied prompt. Open chat in Codex launches `codex://threads/<recorded-thread-id>`;
+the original context is visible in the chat's first message and downloadable from the panel.
+Codex also loads its own user/project instructions; the displayed prompt is the context our
+application supplies, not an inventory of Codex's internal context.
+
+Drag cards between agent lanes, or use the reassignment form. To introduce another agent,
+enter a new role and model in the form; its skills and boundaries are copied from the current
+owner and should be reviewed. Reassignment preserves previous revisions and run history,
+updates required handoffs, and invalidates approval. Stop an active run and wait for its stopped
+status before moving work. Changes already made remain in the project for the next agent.
+
+A completed Codex turn is not a test-pass verdict. Inspect its checks and run the required
+manual tests, then accept verification. Dependent tasks wait for accepted prerequisite tasks.
+The runner never automatically commits, merges, pushes, or deploys. Its prompt forbids those
+actions; owned file boundaries are likewise instructions within the project sandbox.
+
+Runs time out after 30 minutes. Logs and prompts are saved alongside the design in ignored
+`plans/` storage. A hard planner crash may leave a project lock in the system temporary directory
+(`codex-orchestrator-locks-<uid>`); check and stop the associated Codex process before removing
+an abandoned lock. Ordinary shutdown requests cancellation and waits for workers to stop.
+
+References: [Codex CLI](https://learn.chatgpt.com/docs/cli/reference) and
+[local chat links](https://learn.chatgpt.com/docs/reference/commands).
