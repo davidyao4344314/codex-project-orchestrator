@@ -44,7 +44,7 @@ def plan(
         typer.Option(help="Planning provider (default: template, or codex for interactive)."),
     ] = None,
     model: Annotated[
-        str | None, typer.Option(help="Codex model override; otherwise use the CLI default.")
+        str | None, typer.Option("--model", "--planning-model", help="Planning model ID.")
     ] = None,
     timeout: Annotated[int, typer.Option(min=1, help="Codex timeout in seconds.")] = 300,
     interactive: Annotated[
@@ -117,10 +117,28 @@ def resume(
         Path,
         typer.Argument(exists=True, dir_okay=False, resolve_path=True, help="Saved session JSON."),
     ],
+    intake_model: Annotated[
+        str | None, typer.Option(help="Change intake model; default resets it.")
+    ] = None,
+    planning_model: Annotated[
+        str | None,
+        typer.Option(
+            "--planning-model", "--model", help="Change planning model; default resets it."
+        ),
+    ] = None,
 ) -> None:
     """Continue a saved interactive planning session."""
     try:
         session = PlanningSession.load(session_file)
+        for field, value in (("intake_model", intake_model), ("planning_model", planning_model)):
+            if value is not None:
+                if not value.strip():
+                    raise typer.BadParameter("Model ID must not be empty.")
+                setattr(
+                    session, field, None if value.strip().casefold() == "default" else value.strip()
+                )
+        if intake_model is not None or planning_model is not None:
+            session.save(session_file)
         run_session(session, session_file)
     except (OSError, UnicodeError, ValidationError, CodexError) as exc:
         typer.echo(f"Could not continue session: {exc}", err=True)

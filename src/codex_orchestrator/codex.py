@@ -2,12 +2,15 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TypeVar
 
+import typer
 from pydantic import BaseModel, ValidationError
 
 from codex_orchestrator.models import PlanContent
@@ -87,6 +90,7 @@ def codex_response(
     *,
     model: str | None = None,
     timeout: int = 300,
+    on_response: Callable[[str | None], None] | None = None,
 ) -> ResponseModel:
     """Run a read-only Codex turn and validate its structured response."""
     executable = find_codex()
@@ -120,6 +124,7 @@ def codex_response(
         if model is not None:
             command.extend(["--model", model])
         command.append("-")
+        typer.echo(f"Request model: {model or 'Codex configured default'}", err=True)
         try:
             completed = subprocess.run(
                 command,
@@ -139,7 +144,17 @@ def codex_response(
             detail = completed.stderr.strip()[-2000:] or "No diagnostic output was returned."
             raise CodexError(f"Codex exited with code {completed.returncode}: {detail}")
         try:
-            return response_model.model_validate_json(response.read_text(encoding="utf-8"))
+            result = response_model.model_validate_json(response.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, ValidationError) as exc:
             label = "plan" if response_model is PlanContent else response_model.__name__
             raise CodexError(f"Codex did not return a valid {label}: {exc}") from exc
+
+        # The formatted CLI startup header reports its selected model. Keep this optional
+        # because some CLI versions omit the header or change its format.
+        match = re.search(r"(?m)^model:\s*(\S+)", completed.stderr)
+        reported_model = match.group(1) if match else None
+        label = reported_model or f"unreported by CLI (requested {model or 'configured default'})"
+        typer.echo(f"Response model: {label}", err=True)
+        if on_response is not None:
+            on_response(reported_model)
+        return result

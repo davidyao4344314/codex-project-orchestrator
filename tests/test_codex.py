@@ -109,3 +109,26 @@ def test_real_subprocess_boundary_with_fake_cli(tmp_path: Path, monkeypatch: pyt
     monkeypatch.setattr("codex_orchestrator.codex.shutil.which", lambda _: str(fake))
     result = codex_plan(tmp_path, "Café", "Build a café app")
     assert result == template_plan()
+
+
+@pytest.mark.parametrize("reported", ["served-model", None])
+def test_response_model_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys, reported):
+    monkeypatch.setattr("codex_orchestrator.codex.find_codex", lambda: "/tools/codex")
+    seen = []
+
+    def run(command, **kwargs):
+        Path(command[command.index("--output-last-message") + 1]).write_text(
+            template_plan().model_dump_json()
+        )
+        stderr = f"model: {reported}\n" if reported else ""
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr=stderr)
+
+    monkeypatch.setattr("codex_orchestrator.codex.subprocess.run", run)
+    from codex_orchestrator.codex import codex_response
+    from codex_orchestrator.models import PlanContent
+
+    codex_response(tmp_path, "Plan", PlanContent, model="requested-model", on_response=seen.append)
+    assert seen == [reported]
+    output = capsys.readouterr().err
+    assert "Request model: requested-model" in output
+    assert (f"Response model: {reported}" if reported else "unreported by CLI") in output

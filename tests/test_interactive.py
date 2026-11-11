@@ -6,6 +6,7 @@ import pytest
 from typer.testing import CliRunner
 
 from codex_orchestrator.cli import app
+from codex_orchestrator.interactive import choose_models as real_choose_models
 from codex_orchestrator.session import PlanningSession
 
 runner = CliRunner()
@@ -164,3 +165,58 @@ def test_resume_after_question_and_provider_failure(tmp_path: Path, codex) -> No
     assert result.exit_code == 0, result.output
     assert PlanningSession.load(path).approved_revision == 1
     assert "Members" in calls[2][1]
+
+
+@pytest.fixture(autouse=True)
+def default_model_choices(monkeypatch: pytest.MonkeyPatch):
+    def choose(session, **kwargs):
+        session.models_configured = True
+
+    monkeypatch.setattr("codex_orchestrator.interactive.choose_models", choose)
+
+
+def test_choose_models_change_during_intake_and_preserve_revision_source(
+    tmp_path: Path, codex, monkeypatch: pytest.MonkeyPatch
+):
+    # Exercise the real selector, unlike the older workflow tests above.
+    monkeypatch.setattr("codex_orchestrator.interactive.choose_models", real_choose_models)
+    replies, calls = codex
+    replies.extend(
+        [
+            intake("Edit notes", "Who can edit?"),
+            intake("Edit notes"),
+            draft("Edit notes"),
+        ]
+    )
+    path = tmp_path / "session.json"
+    result = runner.invoke(
+        app,
+        ["plan", str(tmp_path), "--interactive", "-o", str(path)],
+        input=(
+            "Edit notes\nfirst-intake\nfirst-planner\n:models\n"
+            "second-intake\nsecond-planner\nMembers\napprove\n"
+        ),
+    )
+    assert result.exit_code == 0, result.output
+    assert "Question model: first-intake" in result.output
+    assert "Plan model: second-planner" in result.output
+    session = PlanningSession.load(path)
+    assert session.models_configured
+    assert session.intake_model == "second-intake"
+    assert session.planning_model == "second-planner"
+    assert [source.requested_model for source in session.response_sources] == [
+        "first-intake",
+        "second-intake",
+        "second-planner",
+    ]
+    assert session.revisions[0].requested_model == "second-planner"
+
+    result = runner.invoke(
+        app,
+        ["resume", str(path), "--intake-model", "next-intake", "--planning-model", "next-planner"],
+        input="save\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "Plan model: second-planner" in result.output
+    assert PlanningSession.load(path).planning_model == "next-planner"
+    assert len(calls) == 3

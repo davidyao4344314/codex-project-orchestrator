@@ -80,6 +80,24 @@ interactive workflow ends with the saved plan. It uses read-only Codex planning 
 Set `--intake-model` and `--model` to choose intake and planning models separately, or
 omit them to use your Codex configuration. `--timeout` applies per model call.
 
+On first use, the terminal asks for the intake and planning model IDs that you have not
+specified through flags. Press Enter to use the Codex configuration. Enter a model ID
+available to your account to select it explicitly. `--planning-model` is an alias for `--model`.
+At a question, type `:models` to change these choices. At the plan review prompt, enter
+`models`. You can also override them when resuming:
+
+```sh
+orchestrator resume plans/activity-session.json --intake-model MODEL_ID --planning-model MODEL_ID
+```
+
+Use `default` in the selector or resume options to return to the Codex configuration. Choices
+are saved per session. The terminal displays the requested model before each call and the
+model reported by the CLI after a successful response. Some CLI versions omit model metadata.
+In that case, the display explicitly says the model was unreported and shows the request
+setting. Each response stores its stage and requested/reported model names, and each plan
+revision keeps its own model attribution even after you change future model choices. Older
+session files remain readable and display unknown model attribution where it was not recorded.
+
 ## Create a starter plan
 
 ```sh

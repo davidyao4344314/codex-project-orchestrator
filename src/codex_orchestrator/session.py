@@ -44,7 +44,15 @@ class DraftPlan(PlanContent):
     agent_rationale: Text
 
 
+class ResponseSource(SessionData):
+    stage: Literal["intake", "planning"]
+    requested_model: Text | None
+    reported_model: Text | None
+
+
 class Revision(SessionData):
+    requested_model: Text | None = None
+    reported_model: Text | None = None
     brief: Brief
     plan: DraftPlan
 
@@ -67,6 +75,9 @@ class PlanningSession(SessionData):
     project_name: Text
     intake_model: Text | None = None
     planning_model: Text | None = None
+    models_configured: bool = False
+    response_sources: list[ResponseSource] = Field(default_factory=list)
+    pending_question_model: Text | None = None
     timeout: int = Field(default=300, ge=1)
     phase: Literal["intake", "planning", "review", "approved"] = "intake"
     answers: list[Answer] = Field(default_factory=list)

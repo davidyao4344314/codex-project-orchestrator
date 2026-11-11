@@ -131,3 +131,11 @@ def test_postponed_login_preserves_idea_then_resume_continues(
     assert result.exit_code == 0, result.output
     assert "What should be counted?" in result.output
     assert PlanningSession.load(path).answers == session.answers
+
+
+@pytest.fixture(autouse=True)
+def default_model_choices(monkeypatch: pytest.MonkeyPatch):
+    def choose(session, **kwargs):
+        session.models_configured = True
+
+    monkeypatch.setattr("codex_orchestrator.interactive.choose_models", choose)
