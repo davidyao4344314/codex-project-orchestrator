@@ -13,13 +13,13 @@ later integrations.
 | --- | --- | --- |
 | Contracts/checkpoints | `models`, `session`, `design_models` | Validate persisted data, atomic replacement, revision history |
 | Planning services | `planner`, `interactive`, `design` | Intake, requirements, architecture, clarification and revisions |
-| Design rules | `design_validation`, `stage_review`, `reassignment` | Graph/context validation, stage decisions, ownership changes |
+| Design rules | `design_validation`, `stage_review`, `reassignment`, `allocation` | Graph/context validation, stage decisions, ownership changes |
 | Assignment context | `assignment_context` | Build supplied task context without importing Streamlit |
 | Read-only Codex adapter | `codex`, `setup`, `explain` | CLI discovery/auth setup, structured responses, explanations |
 | Execution adapter | `execution` | Start/stop Codex, project writer lock, timeout, prerequisites, verification |
 | Run storage | `run_store` | Validated snapshots, bounded cache and log previews, latest-attempt lookup |
 | Terminal interface | `cli`, `design_display` | Arguments, prompts and terminal presentation |
-| Web interface | `web`, `workflow_view`, `dashboard`, `run_view`, `web_widgets` | Navigation, forms, workflow rendering, live run display |
+| Web interface | `web`, `workflow_view`, `dashboard`, `run_view`, `allocation_view`, `web_widgets` | Navigation, forms, workflow rendering, live run display |
 | Browser interactions | `selection`, `task_board` | Small JavaScript components for highlighting and drag/drop |
 
 Keep persistent rules in Python services and contracts. Views should call these services
@@ -91,3 +91,13 @@ file edits or native Codex follow-ups therefore still require human re-verificat
 Install the complete development environment with `python -m pip install -e '.[dev,web]'`.
 Run `python -m pytest -q`, `ruff check src tests examples`, and `ruff format --check src tests examples`.
 Web tests intentionally skip without the web extra, so install it when changing the interface.
+
+## AI allocation extension
+
+`allocation` produces a separate, fingerprinted proposal for a user-selected roster. The
+AI supplies agent metadata, task owners/reasons, and gate owners; Python assembles those into
+a copy of the existing design. It cannot add tasks or alter their scope, dependency graph,
+context references, or check definitions. Validation requires exact coverage and meaningful
+responsibility for every selected agent, and preserves required human review. Applying the
+proposal creates a new revision and clears approval. `allocation_view` only renders sidebar
+settings and proposal review. Roster preferences have defaults so older sessions still load.

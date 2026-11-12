@@ -116,3 +116,25 @@ Automated runner tests use local fake Codex subprocesses and make no model reque
 exercise approval gates, project locks, event persistence, success/failure status, cancellation,
 reassignment revisions, and native chat URL construction. Browser interaction and native app
 routing should be checked manually using this checklist.
+
+## AI team sidebar and task allocation
+
+1. Open a project with a complete technical design. Expand the sidebar if it is collapsed.
+   Expect AI team, the current design's agent count, and Number of AI agents (1–8).
+2. Choose two agents. Set roles such as Python developer and Test specialist, then choose
+   each model or leave default. Changing these settings should make no model request.
+3. Select Suggest task assignments. Expect a planner response with model attribution,
+   a complete task mapping with reasons, and verification owners in the full details.
+   If there is too little work for the chosen count, unused agents should be rejected;
+   choose fewer agents or give them meaningful verification roles.
+4. Inspect the proposed team and select Apply suggested team. Expect one new design
+   revision, the exact chosen agent count/models, unchanged task scope and dependencies,
+   and fresh design/stage approval required. No implementation should start automatically.
+5. Open an assigned task: check its model, skills, boundaries, context, and assignment reason.
+   Reopen the project: settings and applied ownership should persist.
+6. An active project run must block new allocation requests and application. A proposal
+   made before another design revision must be rejected instead of overwriting new work.
+   Required human stage review must remain in place.
+
+This feature chooses logical agent responsibilities. Concurrent writers remain unsupported.
+Automated sidebar tests mock the planner and verify explicit requests and review-before-apply.

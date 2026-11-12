@@ -346,3 +346,18 @@ References: [Codex CLI](https://learn.chatgpt.com/docs/cli/reference) and
 See [architecture and maintenance review](docs/architecture.md) for module boundaries,
 state rules, reviewed efficiency improvements, and the remaining execution limitations.
 Install both development extras (`.[dev,web]`) when working on the UI so its tests run.
+
+## AI team allocation
+
+After creating a technical design, the sidebar offers **AI team** settings on each project
+page. Choose 1–8 logical agents and enter a role and accessible model ID (or `default`) for
+each. **Suggest task assignments** makes one read-only planner request. Review its task-owner
+mapping, reasons, skills, and stage verification owners, then choose **Apply suggested team**.
+Applying preserves the task/stage graph and scope, creates a new design revision, and clears
+approval. Review and approve the new design and stage plans before starting implementation.
+
+The selected count is a logical team size, not parallel process concurrency. Current execution
+still runs one task at a time. Every proposed agent must have a task or verification role;
+unused agents and incomplete mappings are rejected. Settings and proposals are local session
+data under ignored `plans/`. Refreshing or editing settings never makes a model request.
+Task assignment reasons remain in the revision and are supplied to the assigned agent's context.
