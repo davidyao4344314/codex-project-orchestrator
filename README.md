@@ -340,3 +340,9 @@ an abandoned lock. Ordinary shutdown requests cancellation and waits for workers
 
 References: [Codex CLI](https://learn.chatgpt.com/docs/cli/reference) and
 [local chat links](https://learn.chatgpt.com/docs/reference/commands).
+
+## Maintaining the project
+
+See [architecture and maintenance review](docs/architecture.md) for module boundaries,
+state rules, reviewed efficiency improvements, and the remaining execution limitations.
+Install both development extras (`.[dev,web]`) when working on the UI so its tests run.
