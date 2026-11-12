@@ -1,18 +1,80 @@
 # Codex Project Orchestrator
 
-A Python command-line program for planning frontend, backend, database, and integration work.
-The backend is Python, with small browser components for selection and drag-and-drop.
-The program saves reviewable designs and can run one approved assignment at a time in Codex.
+A Python project planner and local execution coordinator, with a terminal interface and a
+Streamlit dashboard. Plan frontend, backend, database and integration work, inspect each agent's
+context, then run approved assignments through your installed Codex CLI one at a time.
+
+## Current workflow
+
+The diagram shows the implemented workflow as of 13 November 2026. Product stages 1–3 describe
+the planner itself; **delivery stages** are the smaller implementation milestones it creates
+for your project. Every delivery stage has its own approval and verification gates.
+
+```mermaid
+flowchart TD
+    Start[Describe your project] --> Setup[Check Codex installation and sign-in]
+    Setup --> Intake[Stage 1: clarify requirements and boundaries]
+    Intake --> Requirements{Approve requirements?}
+    Requirements -->|Feedback| Intake
+    Requirements -->|Approve| Design[Stage 2: architecture and delivery stages]
+    Design --> Team[Assign tasks, agents, skills, models and context]
+    Team --> DesignReview{Approve technical design?}
+    DesignReview -->|Feedback or reallocation| Design
+    DesignReview -->|Approve| StagePlan{Approve this delivery stage's plan?}
+    StagePlan -->|Feedback| Design
+    StagePlan -->|Approve| Dispatch[Stage 3: explicitly run next ready task]
+    Dispatch --> Gates{Prerequisite tasks and stages accepted?}
+    Gates -->|No| Wait[Resolve prerequisites or missing approvals]
+    Wait --> Dispatch
+    Gates -->|Yes| Context[Rebuild and save bounded context under project lock]
+    Context --> Ready{Required context ready?}
+    Ready -->|No| Resolve[Resolve missing inputs, skills or budgets]
+    Resolve --> Dispatch
+    Ready -->|Yes| Worker[Run assigned worker and model: one task at a time]
+    Worker --> Evidence[Validate report, command evidence and observed file changes]
+    Evidence --> Result{Run completed with valid evidence?}
+    Result -->|Failed, blocked or stopped| Inspect[Inspect report and partial edits; explicitly retry]
+    Inspect --> Dispatch
+    Result -->|Yes| Human[User reviews output and performs required manual tests]
+    Human --> Verify{Accept task verification?}
+    Verify -->|Changes needed or stale artifacts| Inspect
+    Verify -->|Accept| Tasks{All tasks in this delivery stage verified?}
+    Tasks -->|No: explicitly dispatch next task| Dispatch
+    Tasks -->|Yes| StageReview[Review combined changes and record stage test evidence]
+    StageReview --> Accept{Accept stage verification?}
+    Accept -->|Changes needed| Inspect
+    Accept -->|Accept| More{More delivery stages?}
+    More -->|Yes| StagePlan
+    More -->|No| Done[Implementation ready for final human review and manual merge]
+```
+
+Frontend, backend, database, integration and general workers share one runner. Assignments
+without owned files use read-only verification. A selected team of 1–8 logical agents still
+executes sequentially. You can inspect context, reports, code diffs and the recorded Codex chat
+from the agent workspace.
+
+Every dispatch, retry and acceptance is explicit; refreshing never starts model work. Pause
+requests cancellation and preserves partial edits; resume clears the pause and waits for another
+dispatch. Feedback, reallocation and model changes that create a design revision require renewed
+approval. A completed run waits for user verification; it does not automatically advance the
+project. Stage acceptance records human evidence, while committing, merging, pushing and
+deploying remain manual.
+
+Try **New project → Try worker test project** in the dashboard and follow the
+[worker acceptance checklist](docs/worker-testing.md). See the
+[quality review](docs/quality-review.md) for current checks and remaining limitations.
 
 ## Stack
 
 - Python 3.11+ for the script.
 - Typer for commands and help.
 - Pydantic for validated JSON plans.
+- Streamlit for the optional local dashboard, with small browser components for selection
+  and drag-and-drop.
 - Git for checkpoints; pytest and Ruff for development checks.
 
-JSON files store plans for now. A database server, web framework, and agent orchestration library
-are not required for this milestone.
+Local JSON files store plans, approvals and run checkpoints. No database server or agent
+orchestration library is required.
 
 ## Set up
 
@@ -238,10 +300,10 @@ invalid responses produce an error; they do not silently fall back to template t
 
 Official OpenAI documentation currently supports both a
 [Python SDK (`openai-codex`)](https://learn.chatgpt.com/docs/codex-sdk) and a TypeScript SDK.
-This repository uses Python's standard-library `subprocess` module to call `codex exec` because
-this milestone needs just one bounded request. You do not need to write or read JavaScript or
-install an SDK to use this code. The Codex adapter can be replaced with the Python SDK later
-if persistent sessions or streamed events become necessary.
+This repository uses Python's standard-library `subprocess` module to call `codex exec`.
+Planning uses bounded read-only requests; implementation uses persistent chats and streamed
+JSON events. Both reuse the installed CLI and its sign-in. You do not need to write JavaScript
+or install an SDK to use this code.
 
 These interfaces were checked against official documentation on 2026-11-11 and the locally
 installed Codex CLI `0.167.0-alpha.3.2`. Local help confirms the flags above. Older installations
@@ -262,7 +324,8 @@ files. The script requests read-only project access and does not run the propose
 
 ## Read the Python code
 
-Start with `planner.py` to see the six starter tasks. The rest is split into small modules:
+Start with `planner.py` for the offline template, or `coordinator.py` for the current execution
+workflow. The main module boundaries are:
 
 | File | What it does |
 | --- | --- |
@@ -272,29 +335,42 @@ Start with `planner.py` to see the six starter tasks. The rest is split into sma
 | `src/codex_orchestrator/codex.py` | Sends a request and validates structured Codex output. |
 | `src/codex_orchestrator/interactive.py` | Runs the terminal intake, planning, and review flow. |
 | `src/codex_orchestrator/session.py` | Defines briefs and revisions and saves resumable checkpoints. |
+| `src/codex_orchestrator/design.py` | Builds and revises technical designs from approved requirements. |
+| `src/codex_orchestrator/coordinator.py` | Derives stage schedules and handles explicit dispatch and acceptance. |
+| `src/codex_orchestrator/context_builder.py` | Builds bounded, inspectable assignment packages. |
+| `src/codex_orchestrator/execution.py` | Manages the Codex process, project lock, cancellation and verification. |
+| `src/codex_orchestrator/worker_models.py` | Defines worker contracts, reports and evidence. |
+| `src/codex_orchestrator/worker_runtime.py` | Prepares contracts and reconciles final worker artifacts. |
+| `src/codex_orchestrator/worker_audit.py` | Observes bounded file changes and produces diff evidence. |
+| `src/codex_orchestrator/web.py` | Opens the local dashboard and planning forms. |
 | `tests/` | Checks behavior using Python and pytest. |
 
 The template starts with a contract, then separates database/backend work from frontend work
 with mocks. Integration depends on both branches, and verification comes last. This expresses
-possible coordination without creating a scheduler or starting worker agents.
+possible coordination without starting workers. Approved interactive designs can use the
+execution coordinator described above.
 
 ## Development
 
 ```sh
-python -m pytest
-ruff check .
-ruff format --check .
+python -m pip install -e '.[dev,web]'
+python -m pytest -q
+ruff check src tests examples
+ruff format --check src tests examples
 ```
 
-Tests cover JSON validation, dependency cycles, CLI input/output, and Codex failures. The
-interactive tests simulate Codex replies to exercise clarification, revision, approval, and
-resuming after a failed model call.
+Tests cover planning, revisions, approvals, dependency/stage gates, bounded context, worker
+reports, file audits, cancellation and stale-artifact rejection. Model calls are mocked and
+execution tests use local fake Codex programs. The suite does not spend account usage or open
+native chats. Browser and real-account acceptance steps are documented separately.
 
 ## Next increments
 
-1. Add `status` to read a saved plan and show which tasks have their prerequisites satisfied.
-2. Extend the web runner with CLI execution controls and richer review/merge evidence.
-3. Add independent workers and Git worktrees once single-task execution is reliable.
+1. Add independent stage review and richer test-evidence evaluation.
+2. Add workflow metrics and compare completion time, tokens, tool calls, errors and test results
+   against ordinary Codex runs.
+3. Add durable process recovery and isolated Git worktrees before parallel worker execution.
+4. Extend terminal execution controls and verified commit/merge evidence.
 
 See the [project roadmap](docs/roadmap.md) for the Workflow Analyzer, Task Planner,
 Performance Optimizer, and Evaluation Engine.
@@ -314,7 +390,8 @@ See [browser testing instructions](docs/web-testing.md) for expected results.
 ## Implementation and Codex chats
 
 Approve the technical design and the chosen stage's plan, then choose Start implementation.
-The runner uses persistent `codex exec --json` sessions with the workspace-write sandbox,
+The runner uses persistent `codex exec --json` sessions with the workspace-write sandbox
+(read-only for verification assignments),
 existing Codex sign-in, and the assigned model. Only one task can write in a project at a time.
 The run panel refreshes every two seconds and shows events, agent output, status, and the
 exact supplied prompt. Open chat in Codex launches `codex://threads/<recorded-thread-id>`;
@@ -443,7 +520,11 @@ Each planned check has an ID. Reports are validated against the assigned identit
 matched to observed command/exit-code events. Workspace snapshots compare actual edits against
 reported changes and owned files. Unsupported pass claims and scope violations block verification;
 failed or invalid reports fail. Checks still require human review for semantic adequacy. Accepting
-verification also rejects modified report artifacts or changed audited inputs/outputs.
+verification also rejects modified report artifacts or changed audited inputs/outputs. New runs
+also record and check the full worker-specification and final-snapshot hashes. Older records
+remain readable with their original checks; hashes detect inconsistencies rather than protect
+against someone able to rewrite the run record itself. Unreadable assigned files before or
+after execution block completion, and command evidence must match the exact reported command.
 
 The workspace now displays Worker report, remaining human checks, and Load worker evidence
 for command output and diffs. To try every worker type, choose **New project → Try worker test
