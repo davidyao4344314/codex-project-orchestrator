@@ -14,6 +14,7 @@ from codex_orchestrator.allocation import (
 )
 from codex_orchestrator.design_models import AgentPreference, DesignSession
 from codex_orchestrator.execution import is_busy
+from codex_orchestrator.job_assessment import assess_job
 
 
 def allocation_sidebar(source_path, action):
@@ -30,11 +31,33 @@ def allocation_sidebar(source_path, action):
             st.caption("Finish the technical design first.")
             return
         revision = state.revisions[-1]
-        roster = state.agent_roster or [
+        assessment = assess_job(state)
+        st.markdown("**Automatic job assessment**")
+        st.write(
+            f"{assessment.complexity.title()} · {assessment.task_count} tasks · "
+            f"{assessment.stage_count} stages"
+        )
+        st.write(f"Recommended team · {len(assessment.roster)} agents")
+        st.caption(
+            f"Based on architect revision {assessment.source_revision}; "
+            "no extra model request is needed."
+        )
+        with st.expander("Why this team?"):
+            st.write(assessment.reasoning)
+            for task in assessment.tasks:
+                st.markdown(f"**{task['Task']}** · {task['Difficulty']}")
+                st.write(f"{task['Agent']} · {task['Model capability']}")
+                st.caption(task["Reason"])
+        mode = st.radio(
+            "Team sizing", ["Planner recommendation", "Custom team"], key=f"sizing_{path.name}"
+        )
+        automatic = mode == "Planner recommendation"
+        custom_roster = state.agent_roster or [
             AgentPreference(id=a.id, role=a.role, model=revision.agent_models[a.id])
             for a in revision.design.agents
         ]
-        prefix = f"team_{path.name}_{len(state.revisions)}"
+        roster = assessment.roster if automatic else custom_roster
+        prefix = f"team_{path.name}_{len(state.revisions)}_{mode}"
         st.caption(f"Current design · {len(revision.design.agents)} agents")
         st.caption("Settings below configure the next suggestion.")
         count = st.number_input(
@@ -44,6 +67,7 @@ def allocation_sidebar(source_path, action):
             value=min(8, len(roster)),
             step=1,
             key=f"{prefix}_count",
+            disabled=automatic,
         )
         st.caption("Logical team size. Implementation currently runs one task at a time.")
         with st.form(f"{prefix}_settings"):
@@ -54,10 +78,12 @@ def allocation_sidebar(source_path, action):
                     role = st.text_input(
                         f"Agent {index + 1} role",
                         value=previous.role if previous else "General developer",
+                        disabled=automatic,
                     )
                     model = st.text_input(
                         f"Agent {index + 1} model",
                         value=(previous.model or "default") if previous else "default",
+                        disabled=automatic,
                     )
                     preferences.append(
                         {

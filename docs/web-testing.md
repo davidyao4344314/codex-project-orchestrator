@@ -138,3 +138,13 @@ routing should be checked manually using this checklist.
 
 This feature chooses logical agent responsibilities. Concurrent writers remain unsupported.
 Automated sidebar tests mock the planner and verify explicit requests and review-before-apply.
+
+## Automatic assessment defaults
+
+Open an existing technical design and inspect Automatic job assessment in the sidebar.
+Expect task/stage counts, overall difficulty (the highest task difficulty), recommended team
+size, and Why this team with per-task capability reasons. Planner recommendation should be
+selected by default, with team settings read-only. Switch to Custom team to edit the count,
+roles, or models and use the existing proposal/review flow. Refreshing should not call Codex.
+Manual team revisions should preserve the architect's original recommendation. A newly
+requested architect revision should replace it with that revision's assessment.

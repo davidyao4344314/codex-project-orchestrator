@@ -361,3 +361,14 @@ still runs one task at a time. Every proposed agent must have a task or verifica
 unused agents and incomplete mappings are rejected. Settings and proposals are local session
 data under ignored `plans/`. Refreshing or editing settings never makes a model request.
 Task assignment reasons remain in the revision and are supplied to the assigned agent's context.
+
+### Automatic job assessment
+
+The architect assesses task difficulty, uncertainty, dependencies, specialties, context size,
+and verification effort while generating the technical design. It chooses a small useful
+team and records its reasoning and required model capabilities. The sidebar defaults to
+**Planner recommendation** and displays that assessment; choose **Custom team** to override
+count, roles, or concrete model IDs. Overall complexity summarizes the hardest planned task.
+The assessment uses the latest architect revision, so manual reallocations do not erase the
+original recommendation. No extra assessment call runs on page load or refresh. Existing
+projects show their stored planner decisions; a new technical-design revision reassesses them.

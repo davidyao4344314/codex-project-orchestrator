@@ -14,6 +14,7 @@ later integrations.
 | Contracts/checkpoints | `models`, `session`, `design_models` | Validate persisted data, atomic replacement, revision history |
 | Planning services | `planner`, `interactive`, `design` | Intake, requirements, architecture, clarification and revisions |
 | Design rules | `design_validation`, `stage_review`, `reassignment`, `allocation` | Graph/context validation, stage decisions, ownership changes |
+| Job assessment | `job_assessment` | Summarize architect difficulty/team decisions without inference on refresh |
 | Assignment context | `assignment_context` | Build supplied task context without importing Streamlit |
 | Read-only Codex adapter | `codex`, `setup`, `explain` | CLI discovery/auth setup, structured responses, explanations |
 | Execution adapter | `execution` | Start/stop Codex, project writer lock, timeout, prerequisites, verification |
