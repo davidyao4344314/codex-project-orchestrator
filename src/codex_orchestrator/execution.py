@@ -22,7 +22,7 @@ from codex_orchestrator.design_validation import task_graph, validate_design
 from codex_orchestrator.run_store import Run, latest_runs, run_directory, runs
 from codex_orchestrator.stage_review import current_review
 from codex_orchestrator.worker_audit import snapshot_workspace
-from codex_orchestrator.worker_models import WorkerSpec
+from codex_orchestrator.worker_models import WorkerSpec, artifact_digest
 from codex_orchestrator.worker_results import observe_command
 from codex_orchestrator.worker_runtime import (
     check_worker_verification,
@@ -104,6 +104,7 @@ def start_run(state, path, task, context=None):
             spec = prepare_worker(package, Path(state.project), folder)
             run.worker_contract_version = 1
             run.worker_profile = spec.profile
+            run.worker_spec_digest = artifact_digest(spec)
             previous_runs = [
                 r.model_dump(include={"id", "status", "model", "revision", "thread_id"})
                 for r in runs(path)
@@ -135,8 +136,13 @@ def _worker(executable, project, folder, lock, stop):
     try:
         if run.worker_contract_version == 1:
             spec = WorkerSpec.load(folder / "worker_spec.json")
-            if spec.context_digest != run.context_digest:
-                raise ValueError("Worker spec differs from the recorded context digest.")
+            if spec.context_digest != run.context_digest or (
+                run.worker_spec_digest is not None
+                and artifact_digest(spec) != run.worker_spec_digest
+            ):
+                raise ValueError(
+                    "Worker spec differs from its recorded contract or context digest."
+                )
             before = snapshot_workspace(project, spec.audit_paths, folder)
             before.save(folder / "workspace_before.json")
         command = [

@@ -1,10 +1,8 @@
 """Human-readable worker reports and explicitly loaded execution evidence."""
 
-import hashlib
-
 import streamlit as st
 
-from codex_orchestrator.worker_models import WorkerEvidence, WorkerSpec
+from codex_orchestrator.worker_models import WorkerEvidence, WorkerSpec, artifact_digest
 from codex_orchestrator.worker_results import load_result
 
 
@@ -23,8 +21,7 @@ def worker_report_view(run, folder):
     file = folder / "worker_result.json"
     if file.exists():
         report = load_result(file)
-        digest = hashlib.sha256(report.model_dump_json().encode("utf-8")).hexdigest()
-        if digest != run.worker_result_digest:
+        if artifact_digest(report) != run.worker_result_digest:
             st.warning(
                 "Worker report differs from the recorded hash; verification will be rejected."
             )

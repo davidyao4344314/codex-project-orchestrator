@@ -5,6 +5,7 @@ import hashlib
 import os
 import stat
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 
 from pydantic import Field
@@ -25,6 +26,7 @@ class FileState(SessionData):
     sha256: str | None = None
     marker: str | None = None
     text: str | None = None
+    # Also charges bytes read but discarded after a concurrent file change.
     bytes_hashed: int = 0
 
 
@@ -35,7 +37,7 @@ class WorkspaceSnapshot(SessionData):
     warnings: list[str] = Field(default_factory=list)
 
 
-def _git(project, *args):
+def _git(project: Path, *args: str) -> bytes | None:
     result = subprocess.run(
         ["git", "-C", str(project), *args], capture_output=True, timeout=20, check=False
     )
@@ -44,7 +46,7 @@ def _git(project, *args):
     return result.stdout if result.returncode == 0 else None
 
 
-def _status(project):
+def _status(project: Path) -> set[str]:
     data = _git(project, "status", "--porcelain=v1", "-z", "--untracked-files=all")
     if data is None:
         raise ValueError("Cannot inspect Git status for worker audit.")
@@ -63,20 +65,30 @@ def _status(project):
     return paths
 
 
-def _file_state(project, name, include_text, remaining):
+def _file_state(project: Path, name: str, include_text: bool, remaining: int) -> FileState:
     file = project / name
+    limit = min(MAX_FILE_BYTES, max(0, remaining))
     try:
         info = file.lstat()
         if stat.S_ISLNK(info.st_mode):
             return FileState(exists=True, marker="symlink:" + os.readlink(file))
         if not stat.S_ISREG(info.st_mode) or not file.resolve().is_relative_to(project):
             return FileState(exists=True, marker="special-or-outside")
-        if is_private_path(file) or info.st_size > min(MAX_FILE_BYTES, remaining):
+        if is_private_path(file) or info.st_size > limit:
             return FileState(exists=True, marker=f"not-read:{info.st_size}:{info.st_mtime_ns}")
-        with file.open("rb") as stream:
-            raw = stream.read(MAX_FILE_BYTES + 1)
-        if len(raw) > MAX_FILE_BYTES:
-            return FileState(exists=True, marker="grew-beyond-limit")
+        # A path may change after lstat. Never block on a substituted FIFO or follow
+        # a substituted symlink, and validate the opened descriptor before reading.
+        descriptor = os.open(file, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, "rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if not stat.S_ISREG(opened.st_mode):
+                return FileState(exists=True, marker="special-or-outside")
+            if _signature(info) != _signature(opened):
+                return FileState(exists=True, marker="changed-while-opening")
+            raw = stream.read(limit)
+            final = os.fstat(stream.fileno())
+        if _signature(opened) != _signature(final) or len(raw) != final.st_size:
+            return FileState(exists=True, marker="changed-while-reading", bytes_hashed=len(raw))
         text = None
         if include_text and len(raw) <= MAX_TEXT_BYTES and b"\x00" not in raw:
             try:
@@ -90,10 +102,23 @@ def _file_state(project, name, include_text, remaining):
         )
     except FileNotFoundError:
         return FileState(exists=False)
+    except OSError as exc:
+        return FileState(exists=True, marker=f"unreadable:{exc.errno}")
 
 
-def snapshot_workspace(project, owned_paths, artifact_dir, *, previous=None):
+def _signature(info: os.stat_result) -> tuple[int, int, int, int, int]:
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def snapshot_workspace(
+    project: Path,
+    owned_paths: Iterable[str],
+    artifact_dir: Path,
+    *,
+    previous: WorkspaceSnapshot | None = None,
+) -> WorkspaceSnapshot:
     project, artifact_dir = Path(project).resolve(), Path(artifact_dir).resolve()
+    owned_paths = set(owned_paths)
     root = _git(project, "rev-parse", "--show-toplevel")
     git_rooted = root is not None and Path(os.fsdecode(root).strip()).resolve() == project
     paths = set(owned_paths)
@@ -127,7 +152,10 @@ def snapshot_workspace(project, owned_paths, artifact_dir, *, previous=None):
     )
 
 
-def workspace_changes(before, after, owned_paths):
+def workspace_changes(
+    before: WorkspaceSnapshot, after: WorkspaceSnapshot, owned_paths: Iterable[str]
+) -> WorkerEvidence:
+    owned_paths = set(owned_paths)
     evidence = WorkerEvidence(warnings=list(dict.fromkeys(before.warnings + after.warnings)))
     if before.head != after.head:
         evidence.violations.append(

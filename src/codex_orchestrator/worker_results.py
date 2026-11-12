@@ -1,28 +1,10 @@
 """Reconcile structured worker reports with observed commands and file changes."""
 
-import shlex
 from pathlib import Path
 
 from codex_orchestrator.worker_models import CommandEvidence, WorkerResult
 
 MAX_RESULT_BYTES = 256 * 1024
-
-
-def command_key(command):
-    try:
-        parts = shlex.split(command)
-        for _ in range(3):
-            if (
-                len(parts) >= 3
-                and Path(parts[0]).name in {"sh", "bash", "zsh"}
-                and parts[1] in {"-c", "-lc"}
-            ):
-                parts = shlex.split(parts[2])
-            else:
-                break
-        return tuple(parts)
-    except ValueError:
-        return (command.strip(),)
 
 
 def observe_command(event):
@@ -79,9 +61,9 @@ def reconcile_result(spec, report, evidence):
     for check in report.checks:
         if check.outcome == "not_run":
             continue
-        matches = [
-            c for c in evidence.commands if command_key(c.command) == command_key(check.command)
-        ]
+        # Shell quoting, wrappers and positional arguments affect behavior. Require
+        # the exact command recorded by Codex rather than treating tokens as equivalent.
+        matches = [c for c in evidence.commands if c.command == check.command]
         match = matches[-1] if matches else None
         expected_pass = check.outcome == "passed"
         if match is None or match.exit_code is None or (match.exit_code == 0) != expected_pass:

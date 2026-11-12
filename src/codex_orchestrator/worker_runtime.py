@@ -1,11 +1,10 @@
 """Prepare worker requests and finalize observed, structured worker artifacts."""
 
-import hashlib
 import json
 
 from codex_orchestrator.context_files import resolve_file, sensitive_text
 from codex_orchestrator.worker_audit import WorkspaceSnapshot, snapshot_workspace, workspace_changes
-from codex_orchestrator.worker_models import WorkerResult, WorkerSpec
+from codex_orchestrator.worker_models import WorkerResult, WorkerSpec, artifact_digest
 from codex_orchestrator.worker_profiles import validate_owned_paths, worker_spec
 from codex_orchestrator.worker_results import handoff_text, load_result, reconcile_result
 
@@ -61,11 +60,17 @@ def worker_prompt(spec, package, previous_runs):
 def finalize_worker(run, spec, before, project, folder, commands):
     after = snapshot_workspace(project, spec.audit_paths, folder, previous=before)
     after.save(folder / "workspace_after.json")
+    run.workspace_after_digest = artifact_digest(after)
     evidence = workspace_changes(before, after, spec.owned_paths)
     evidence.commands = commands
-    if any(before.files[p].marker for p in spec.owned_paths if p in before.files):
+    if any(
+        snapshot.files[p].marker
+        for snapshot in (before, after)
+        for p in spec.audit_paths
+        if p in snapshot.files
+    ):
         evidence.violations.append(
-            "An owned file could not be fully audited; manual investigation needed."
+            "An assigned input or output could not be fully audited; manual investigation needed."
         )
     try:
         if run.status != "completed":
@@ -77,8 +82,7 @@ def finalize_worker(run, spec, before, project, folder, commands):
         elif run.status == "failed":
             run.error = "Worker reported failure: " + report.summary
         report.save(folder / "worker_result.json")
-        raw = report.model_dump_json().encode("utf-8")
-        run.worker_result_digest = hashlib.sha256(raw).hexdigest()
+        run.worker_result_digest = artifact_digest(report)
         summary = handoff_text(report)
         if sensitive_text(summary):
             run.status = "blocked"
@@ -97,10 +101,17 @@ def finalize_worker(run, spec, before, project, folder, commands):
 def check_worker_verification(run, project, folder):
     spec = WorkerSpec.load(folder / "worker_spec.json")
     report = load_result(folder / "worker_result.json")
-    digest = hashlib.sha256(report.model_dump_json().encode("utf-8")).hexdigest()
-    if digest != run.worker_result_digest or spec.context_digest != run.context_digest:
-        raise ValueError("Worker artifacts changed; investigate before accepting verification.")
     after = WorkspaceSnapshot.load(folder / "workspace_after.json")
+    if (
+        artifact_digest(report) != run.worker_result_digest
+        or spec.context_digest != run.context_digest
+        or (run.worker_spec_digest is not None and artifact_digest(spec) != run.worker_spec_digest)
+        or (
+            run.workspace_after_digest is not None
+            and artifact_digest(after) != run.workspace_after_digest
+        )
+    ):
+        raise ValueError("Worker artifacts changed; investigate before accepting verification.")
     current = snapshot_workspace(project, spec.audit_paths, folder, previous=after)
     for name in spec.audit_paths:
         old, new = after.files.get(name), current.files.get(name)

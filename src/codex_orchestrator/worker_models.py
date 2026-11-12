@@ -1,5 +1,6 @@
 """Worker contracts: model-reported outcomes remain separate from observed evidence."""
 
+import hashlib
 from typing import Literal, Self
 
 from pydantic import Field, model_validator
@@ -8,6 +9,11 @@ from codex_orchestrator.models import Text
 from codex_orchestrator.session import SessionData
 
 WorkerKind = Literal["frontend", "backend", "database", "integration", "general", "verification"]
+
+
+def artifact_digest(artifact: SessionData) -> str:
+    """Hash validated content independently of checkpoint whitespace."""
+    return hashlib.sha256(artifact.model_dump_json().encode("utf-8")).hexdigest()
 
 
 class RequiredCheck(SessionData):

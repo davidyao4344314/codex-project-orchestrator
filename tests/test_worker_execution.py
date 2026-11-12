@@ -114,6 +114,7 @@ def test_all_workers_run_with_selected_model_context_and_evidence(
     )
     assert run.status == "completed", run.error
     assert run.worker_profile == area and not run.verified
+    assert run.worker_spec_digest and run.workspace_after_digest
     spec = WorkerSpec.load(folder / "worker_spec.json")
     result = WorkerResult.load(folder / "worker_result.json")
     evidence = WorkerEvidence.load(folder / "worker_evidence.json")
