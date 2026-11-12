@@ -5,6 +5,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import Field, model_validator
 
+from codex_orchestrator.context_models import ContextLimits
 from codex_orchestrator.models import PlanContent, Text
 from codex_orchestrator.session import Answer, Revision, ScopedTask, SessionData
 
@@ -158,6 +159,7 @@ class AgentPreference(SessionData):
 
 
 class DesignSession(SessionData):
+    context_limits: ContextLimits = Field(default_factory=ContextLimits)
     agent_roster: list[AgentPreference] = Field(default_factory=list)
     stage_reviews: list[StageReview] = Field(default_factory=list)
     schema_version: Literal[1] = 1

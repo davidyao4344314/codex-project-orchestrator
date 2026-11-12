@@ -10,9 +10,9 @@ from codex_orchestrator.session import SessionData
 
 
 class ContextLimits(SessionData):
-    max_package_bytes: int = Field(default=128 * 1024, ge=1024)
-    max_file_bytes: int = Field(default=24 * 1024, ge=128)
-    max_handoff_bytes: int = Field(default=16 * 1024, ge=128)
+    max_package_bytes: int = Field(default=128 * 1024, ge=1024, le=2 * 1024 * 1024)
+    max_file_bytes: int = Field(default=24 * 1024, ge=128, le=1024 * 1024)
+    max_handoff_bytes: int = Field(default=16 * 1024, ge=128, le=256 * 1024)
     max_resources: int = Field(default=32, ge=1, le=256)
 
 

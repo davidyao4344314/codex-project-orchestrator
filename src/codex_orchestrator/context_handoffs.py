@@ -38,7 +38,7 @@ def handoff_resource(state, task, reference, path: Path | None, limits: ContextL
     resource.source_run_id = run.id
     summary = run.handoff_summary
     truncated = run.handoff_truncated
-    if summary is None:
+    if summary is None or truncated:
         events = run_directory(path) / run.id / "events.jsonl"
         if events.exists():
             for line in read_tail(events):
@@ -55,6 +55,7 @@ def handoff_resource(state, task, reference, path: Path | None, limits: ContextL
                     and isinstance(item.get("text"), str)
                 ):
                     summary = item["text"]
+                    truncated = False
     if not summary or not summary.strip():
         resource.status = "missing"
         resource.reason += " The verified run has no saved handoff summary."

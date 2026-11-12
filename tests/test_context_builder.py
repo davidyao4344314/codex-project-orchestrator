@@ -312,3 +312,46 @@ def test_nested_instructions_and_explicit_contract_references_are_scoped(context
     assert any(r.content == "Use local test conventions" for r in package.resources)
     assert any(c["id"] == "shared" for c in package.metadata["components"])
     assert any(i["id"] == "shared-api" for i in package.metadata["interfaces"])
+
+
+def test_preview_builds_on_click_and_can_refresh_without_inference(context_design, monkeypatch):
+    pytest.importorskip("streamlit")
+    from streamlit.testing.v1 import AppTest
+
+    from codex_orchestrator import context_builder, execution, web
+
+    state, path = context_design
+    (path.parent / "counter.py").write_text("print('preview')")
+    monkeypatch.setenv("ORCHESTRATOR_PLANS", str(path.parent))
+    original = context_builder.read_file
+    reads = []
+
+    def read(*args):
+        reads.append(args[1].reference)
+        return original(*args)
+
+    monkeypatch.setattr(context_builder, "read_file", read)
+    monkeypatch.setattr(execution, "start_run", lambda *a: pytest.fail("Unexpected execution"))
+    monkeypatch.setattr(
+        "codex_orchestrator.dashboard.codex_response",
+        lambda *a, **kw: pytest.fail("Unexpected inference"),
+    )
+    app = AppTest.from_file(web.__file__).run()
+    next(b for b in app.button if b.label == "Open dashboard").click().run()
+    next(b for b in app.button if b.label == "Open agent workspace").click().run()
+    assert not app.exception and reads == []
+    next(b for b in app.button if b.label == "Build context preview").click().run()
+    assert not app.exception and reads == ["counter.py"]
+    assert any(c.value == "print('preview')" for c in app.code)
+    app.run()
+    assert not app.exception and len(reads) == 1
+    (path.parent / "counter.py").write_text("print('updated')")
+    next(b for b in app.button if b.label == "Build context preview").click().run()
+    assert not app.exception and len(reads) == 2
+    assert any(c.value == "print('updated')" for c in app.code)
+    next(n for n in app.number_input if n.label == "Package budget (KiB)").set_value(192)
+    next(b for b in app.button if b.label == "Save context budgets").click().run()
+    assert not app.exception
+    from codex_orchestrator.design_models import DesignSession
+
+    assert DesignSession.load(path).context_limits.max_package_bytes == 192 * 1024

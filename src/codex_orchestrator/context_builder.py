@@ -25,7 +25,7 @@ def build_context(
     current = next((t for t in state.revisions[-1].design.tasks if t.id == task.id), None)
     if current is None or current != task:
         raise ValueError("Build context from the current design's assignment.")
-    limits = limits or ContextLimits()
+    limits = limits or state.context_limits
     metadata = task_context(state, task)
     design = state.revisions[-1].design
     metadata["project_goal"] = state.source.brief.goal
@@ -151,3 +151,14 @@ def _resolve_resources(package, project, resources):
         package.blockers.append(
             "Assignment metadata exceeds the package budget; narrow the assignment."
         )
+
+
+def update_context_limits(state: DesignSession, path: Path, limits: ContextLimits) -> None:
+    from codex_orchestrator.design import check_source
+
+    check_source(state)
+    state.require_current(path)
+    if max(limits.max_file_bytes, limits.max_handoff_bytes) > limits.max_package_bytes:
+        raise ValueError("File and handoff limits must fit inside the package budget.")
+    state.context_limits = limits
+    state.save(path)

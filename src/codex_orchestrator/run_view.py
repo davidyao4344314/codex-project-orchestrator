@@ -4,6 +4,8 @@ import json
 
 import streamlit as st
 
+from codex_orchestrator.context_models import ContextPackage
+from codex_orchestrator.context_view import package_details
 from codex_orchestrator.execution import (
     open_chat,
     start_run,
@@ -58,6 +60,18 @@ def run_panel(state, path, task, context, action):
         st.download_button(
             "Download supplied context", run.prompt, file_name=f"{run.id}-context.txt"
         )
+    if (folder / "context.json").exists():
+        with st.expander("Context package used for this run"):
+            snapshot_key = f"recorded_context_{run.id}"
+            if st.button("Load recorded context package", key=f"load_{run.id}"):
+                st.session_state[snapshot_key] = ContextPackage.load(
+                    folder / "context.json"
+                ).model_dump()
+            if data := st.session_state.get(snapshot_key):
+                package = ContextPackage.model_validate(data)
+                if run.context_digest and package.digest() != run.context_digest:
+                    st.warning("This context file differs from the run's recorded hash.")
+                package_details(package, download_key=run.id)
     events = folder / "events.jsonl"
     if events.exists():
         st.markdown("**Live Codex output**")
