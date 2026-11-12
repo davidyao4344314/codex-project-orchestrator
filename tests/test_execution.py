@@ -140,7 +140,9 @@ def test_stop_terminates_run_before_unlocking_project(design, monkeypatch, tmp_p
     monkeypatch.setattr(
         execution.subprocess,
         "Popen",
-        lambda cmd, **kw: original([sys.executable, str(script)], **kw),
+        lambda cmd, **kw: original(
+            [sys.executable, str(script)] if cmd[0] == "fake-codex" else cmd, **kw
+        ),
     )
     run = execution.start_run(state, path, state.revisions[-1].design.tasks[0], {})
     output = execution.run_directory(path) / run.id / "run.json"

@@ -43,9 +43,9 @@ def progress(path: Path, stage_id: str, source_name, on_open, action):
         action("Pausing and requesting stop…", lambda: coordinator.pause(path))
     if controls[2].button("Resume coordinator", disabled=schedule.status != "paused"):
         action("Resuming coordinator…", lambda: coordinator.resume(path))
-    failed = any(t.status in {"failed", "stopped"} for t in schedule.tasks)
+    failed = any(t.status in {"failed", "stopped", "blocked"} for t in schedule.tasks)
     if failed and schedule.status == "blocked":
-        if st.button("Retry failed or stopped task"):
+        if st.button("Retry failed, blocked, or stopped task"):
             action("Retrying assignment…", lambda: coordinator.run_next(path, stage_id, retry=True))
     st.caption(
         "Refresh only reads progress. Resume does not launch work; use Run next ready task. "

@@ -54,10 +54,13 @@ def worker_spec(package) -> WorkerSpec:
 
 
 def validate_owned_paths(spec, project):
+    normalized = []
     for path in spec.owned_paths:
-        resolve_file(
+        resolved = resolve_file(
             project,
             ContextResource(
                 kind="owned_file", reference=path, reason="Worker ownership", status="pending"
             ),
         )
+        normalized.append(str(resolved.relative_to(project.resolve())))
+    spec.owned_paths = list(dict.fromkeys(normalized))

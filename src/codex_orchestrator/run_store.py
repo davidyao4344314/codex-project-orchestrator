@@ -16,12 +16,15 @@ class Run(SessionData):
     task_id: str
     agent_id: str
     revision: int = Field(ge=1)
-    status: Literal["starting", "running", "stopped", "completed", "failed"] = "starting"
+    status: Literal["starting", "running", "stopped", "completed", "failed", "blocked"] = "starting"
     thread_id: str | None = None
     model: str | None = None
     prompt: str
     error: str | None = None
     verified: bool = False
+    worker_contract_version: Literal[1] | None = None
+    worker_profile: str | None = None
+    worker_result_digest: str | None = None
     context_digest: str | None = None
     handoff_summary: str | None = None
     handoff_truncated: bool = False

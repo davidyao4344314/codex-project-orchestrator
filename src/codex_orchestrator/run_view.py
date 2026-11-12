@@ -13,17 +13,20 @@ from codex_orchestrator.execution import (
     verify_run,
 )
 from codex_orchestrator.run_store import Run, latest_runs, read_tail, run_directory, runs
+from codex_orchestrator.worker_view import worker_report_view
 
 
 @st.fragment(run_every="2s")
 def run_panel(state, path, task, context, action):
     candidates = [r for r in runs(path) if r.task_id == task.id]
     current = [r for r in candidates if r.revision == len(state.revisions)]
+    profile = str(task.workstream) if task.owned_paths else "verification"
+    st.caption(f"Planned worker · {profile}")
     if st.button("Start implementation", key=f"start_{path.name}_{task.id}"):
         action("Starting Codex…", lambda: start_run(state, path, task, context))
     st.caption(
-        "Runs edit the local project using Codex's workspace-write sandbox. "
-        "Owned paths are instructions; the sandbox covers the project. No automatic merge."
+        "Implementation workers use workspace-write; verification workers use read-only. "
+        "File ownership is checked after execution. No automatic merge or rollback."
     )
     if not candidates:
         st.info("No implementation run for this assignment yet.")
@@ -72,6 +75,7 @@ def run_panel(state, path, task, context, action):
                 if run.context_digest and package.digest() != run.context_digest:
                     st.warning("This context file differs from the run's recorded hash.")
                 package_details(package, download_key=run.id)
+    worker_report_view(run, folder)
     events = folder / "events.jsonl"
     if events.exists():
         st.markdown("**Live Codex output**")
@@ -80,10 +84,17 @@ def run_panel(state, path, task, context, action):
                 event = json.loads(line)
             except ValueError:
                 continue
+            if not isinstance(event, dict):
+                continue
             item = event.get("item", {})
+            if not isinstance(item, dict):
+                continue
             if item.get("type") == "agent_message" and item.get("text"):
-                with st.chat_message("assistant"):
-                    st.write(item["text"])
+                if run.worker_contract_version and str(item["text"]).lstrip().startswith("{"):
+                    st.caption("Structured final message is shown in Worker report.")
+                else:
+                    with st.chat_message("assistant"):
+                        st.write(item["text"])
             elif event.get("type") == "item.completed":
                 with st.expander(item.get("type", "Tool output")):
                     st.json(item, expanded=False)

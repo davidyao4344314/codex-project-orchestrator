@@ -31,7 +31,7 @@ def sensitive_text(text: str) -> bool:
     return bool(_SECRET.search(text))
 
 
-def _private(path: Path) -> bool:
+def is_private_path(path: Path) -> bool:
     name = path.name.lower()
     return (
         name == ".env"
@@ -63,7 +63,7 @@ def resolve_file(project: Path, item: ContextResource) -> Path:
             raise ValueError(
                 "Skill must be a SKILL.md in the project or a configured local skill root."
             )
-    if _private(logical) or _private(resolved):
+    if is_private_path(logical) or is_private_path(resolved):
         raise ValueError("Credential, private-key, or generated dependency paths are excluded.")
     return resolved
 

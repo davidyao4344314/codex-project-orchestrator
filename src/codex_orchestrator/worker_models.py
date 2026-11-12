@@ -24,6 +24,7 @@ class WorkerSpec(SessionData):
     model: Text | None
     context_digest: Text
     owned_paths: list[Text]
+    audit_paths: list[Text] = Field(default_factory=list)
     read_only: bool
     instructions: Text
     checks: list[RequiredCheck]

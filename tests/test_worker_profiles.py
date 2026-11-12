@@ -3,6 +3,7 @@ import pytest
 from codex_orchestrator.context_builder import build_context
 from codex_orchestrator.design import prepare_design
 from codex_orchestrator.design_models import DesignRevision, TechnicalDesign
+from codex_orchestrator.models import Workstream
 from codex_orchestrator.worker_models import WorkerResult
 from codex_orchestrator.worker_profiles import worker_spec
 
@@ -18,7 +19,7 @@ def test_profile_uses_plan_model_and_scope(approved_session, technical_payload, 
     if area == "verification":
         task.owned_paths = []
     else:
-        task.workstream = area
+        task.workstream = area if area == "general" else Workstream(area)
     state.revisions.append(
         DesignRevision(design=design, agent_models={"developer": "chosen-model"}, elapsed_seconds=0)
     )

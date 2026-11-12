@@ -25,7 +25,14 @@ class ScheduledTask(SessionData):
     title: str
     agent_id: str
     status: Literal[
-        "ready", "queued", "running", "awaiting_verification", "verified", "failed", "stopped"
+        "ready",
+        "queued",
+        "running",
+        "awaiting_verification",
+        "verified",
+        "failed",
+        "stopped",
+        "blocked",
     ]
     dependencies: list[str]
     run_id: str | None = None
@@ -71,7 +78,7 @@ def stage_schedule(path: Path, stage_id: str) -> StageSchedule:
         run = latest.get(task.id)
         if run and run.status in {"starting", "running"}:
             status = "running"
-        elif run and run.status in {"failed", "stopped"}:
+        elif run and run.status in {"failed", "stopped", "blocked"}:
             status = run.status
         elif run and run.status == "completed":
             status = "verified" if run.verified else "awaiting_verification"
@@ -106,9 +113,10 @@ def stage_schedule(path: Path, stage_id: str) -> StageSchedule:
         return result("blocked", str(exc))
     if stage_accepted(state, path, stage_id):
         return result("accepted")
-    if any(t.status in {"failed", "stopped"} for t in tasks):
+    if any(t.status in {"failed", "stopped", "blocked"} for t in tasks):
         return result(
-            "blocked", "A task failed or stopped. Inspect its output and explicitly retry it."
+            "blocked",
+            "A task failed, blocked, or stopped. Inspect its output and explicitly retry it.",
         )
     if all(t.status == "verified" for t in tasks):
         return result(
@@ -131,7 +139,7 @@ def stage_schedule(path: Path, stage_id: str) -> StageSchedule:
 def run_next(path: Path, stage_id: str, *, retry=False) -> Run:
     state = _current(path)
     schedule = stage_schedule(path, stage_id)
-    candidates = [t for t in schedule.tasks if t.status in {"failed", "stopped"}]
+    candidates = [t for t in schedule.tasks if t.status in {"failed", "stopped", "blocked"}]
     if retry and schedule.status == "blocked" and candidates:
         selected = candidates[0]
     elif not retry and schedule.status == "ready":
