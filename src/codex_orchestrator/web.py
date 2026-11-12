@@ -631,13 +631,15 @@ def main():
         st.caption(session.project)
         view = st.radio(
             "Stage",
-            ["Dashboard", "Requirements", "Technical design"],
+            ["Dashboard", "Requirements", "Technical design", "Agent workspace"],
             horizontal=True,
             label_visibility="collapsed",
             key=f"view_{path.name}",
         )
         if view == "Dashboard":
             dashboard(session, path, action)
+        elif view == "Agent workspace":
+            dashboard(session, path, action, workspace_only=True)
         elif view == "Requirements":
             requirement_view(session, path)
         else:

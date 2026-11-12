@@ -53,6 +53,17 @@ def test_browser_requirements_to_approved_design(
         session.save(path)
 
     def design(state, path, timeout):
+        import copy
+
+        review_task = copy.deepcopy(technical_payload["tasks"][0])
+        review_task.update(
+            id="verify",
+            title="Review counter",
+            owned_paths=[],
+            depends_on=["implement"],
+            workstream="integration",
+        )
+        technical_payload["tasks"].append(review_task)
         state.revisions = [
             DesignRevision(
                 design=TechnicalDesign.model_validate(technical_payload),
@@ -92,7 +103,17 @@ def test_browser_requirements_to_approved_design(
     assert not app.exception
     assert {"Frontend", "Backend", "Database"} <= {h.value for h in app.subheader}
     assert any("Start an approved assignment" in info.value for info in app.info)
-    assert any(s.label == "Assignment" for s in app.selectbox)
+    target = next(b for b in app.button if b.key == f"open_{output.name}_verify")
+    target.click().run()
+    assert not app.exception
+    assert app.radio[0].value == "Agent workspace"
+    assignment = next(s for s in app.selectbox if s.label == "Assignment")
+    assert assignment.value == "verify"
+    assert "Project overview" not in {h.value for h in app.subheader}
+    assert any(b.label == "Start implementation" for b in app.button)
+    button(app, "Back to dashboard").click().run()
+    assert not app.exception
+    assert app.radio[0].value == "Dashboard"
     app.radio[0].set_value("Technical design").run()
     assert not app.exception
     text_input(app, "Python developer model").set_value("another-model")

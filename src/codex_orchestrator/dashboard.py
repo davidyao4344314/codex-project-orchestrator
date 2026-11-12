@@ -128,9 +128,16 @@ def source_files(project, owned_paths):
     return files
 
 
-def dashboard(session, source_path, action):
-    st.subheader("Project overview")
-    st.caption("Assignments, context, and conversations in one place.")
+def open_workspace(path_name, source_name, task_id):
+    st.session_state[f"task_{path_name}"] = task_id
+    st.session_state[f"view_{source_name}"] = "Agent workspace"
+
+
+def show_dashboard(source_name):
+    st.session_state[f"view_{source_name}"] = "Dashboard"
+
+
+def dashboard(session, source_path, action, *, workspace_only=False):
     default = source_path.with_name(f"{source_path.stem}.design.json")
     path = Path(st.session_state.get(f"design_path_{source_path.name}", str(default)))
     if not path.exists():
@@ -149,6 +156,12 @@ def dashboard(session, source_path, action):
     if not state.revisions:
         st.info("The architect is still preparing the technical design.")
         return
+    if workspace_only:
+        st.button("Back to dashboard", on_click=show_dashboard, args=(source_path.name,))
+        workspace(state, path, action)
+        return
+    st.subheader("Project overview")
+    st.caption("Assignments, context, and conversations in one place.")
     design = state.revisions[-1].design
     st.write(design.overview)
     st.info("Start an approved assignment below to run Codex. Plan chat remains read-only.")
@@ -197,13 +210,31 @@ def dashboard(session, source_path, action):
                     st.write(
                         "Plan approved" if review and review.approved else "Plan awaiting review"
                     )
-                    if st.button("Open agent workspace", key=f"open_{path.name}_{task.id}"):
-                        st.session_state[f"task_{path.name}"] = task.id
+                    st.button(
+                        "Open agent workspace",
+                        key=f"open_{path.name}_{task.id}",
+                        on_click=open_workspace,
+                        args=(path.name, source_path.name, task.id),
+                    )
     shared = [t for t in design.tasks if t.workstream not in AREAS]
     if shared:
         with st.expander(f"Shared and integration work · {len(shared)} tasks"):
             for task in shared:
                 st.write(f"{task.title} · {agents[task.agent_id].role} · {task.stage_id}")
+                st.button(
+                    "Open agent workspace",
+                    key=f"open_{path.name}_{task.id}",
+                    on_click=open_workspace,
+                    args=(path.name, source_path.name, task.id),
+                )
+    st.caption("Open an assignment to view its context, implementation controls, and Codex chat.")
+
+
+def workspace(state, path, action):
+    design = state.revisions[-1].design
+    agents = {a.id: a for a in design.agents}
+    latest = {r.task_id: r for r in runs(path) if r.revision == len(state.revisions)}
+    busy = is_busy(state.project)
     st.subheader("Agent workspace")
     ids = [t.id for t in design.tasks]
     key = f"task_{path.name}"
@@ -221,6 +252,10 @@ def dashboard(session, source_path, action):
     model = state.revisions[-1].agent_models[agent.id] or "Codex default"
     status = latest[task.id].status if task.id in latest else "Not started"
     st.caption(f"{agent.role} · {model} · {task.workstream} · {status}")
+    st.caption(
+        "Start implementation below to create a Codex run. Open chat in Codex appears "
+        "once that run reports its chat ID."
+    )
     with st.expander("Reassign this task or create another agent"):
         with st.form(f"assign_{path.name}_{len(state.revisions)}_{task.id}"):
             destination = st.selectbox(
