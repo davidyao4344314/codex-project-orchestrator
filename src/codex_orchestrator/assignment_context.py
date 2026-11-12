@@ -7,6 +7,7 @@ def task_context(state, task):
     return {
         "agent": next(a.model_dump() for a in design.agents if a.id == task.agent_id),
         "assignment": task.model_dump(),
+        "allocation_reason": state.revisions[-1].task_allocation_reasons.get(task.id),
         "requirements": {
             f"R{i}": state.source.brief.requirements[i - 1] for i in task.requirement_ids
         },

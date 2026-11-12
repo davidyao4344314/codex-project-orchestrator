@@ -123,10 +123,12 @@ class DesignReply(SessionData):
 
 
 class DesignRevision(SessionData):
-    origin: Literal["architect", "model_allocation", "assignment"] = "architect"
+    origin: Literal["architect", "model_allocation", "assignment", "team_allocation"] = "architect"
     design: TechnicalDesign
     requested_model: Text | None = None
     reported_model: Text | None = None
+    allocation_rationale: str | None = None
+    task_allocation_reasons: dict[str, str] = Field(default_factory=dict)
     # Allocation is local user configuration, separate from AI capability recommendations.
     agent_models: dict[str, Text | None]
     elapsed_seconds: float = Field(ge=0)
@@ -149,7 +151,14 @@ class StageReview(SessionData):
     approved: bool = False
 
 
+class AgentPreference(SessionData):
+    id: Text
+    role: Text
+    model: Text | None = None
+
+
 class DesignSession(SessionData):
+    agent_roster: list[AgentPreference] = Field(default_factory=list)
     stage_reviews: list[StageReview] = Field(default_factory=list)
     schema_version: Literal[1] = 1
     source_file: Text
