@@ -178,3 +178,34 @@ def test_prerequisite_verification_blocks_dependent_task(design):
     ).save(folder / "run.json")
     with pytest.raises(ValueError, match="completed"):
         execution.verify_run(path, "failed-job")
+
+
+def test_new_failed_attempt_invalidates_old_prerequisite_verification(design):
+    state, path = design
+    first = state.revisions[-1].design.tasks[0]
+    dependent = first.model_copy(deep=True)
+    dependent.id, dependent.owned_paths, dependent.depends_on = "dependent", [], [first.id]
+    state.revisions[-1].design.tasks.append(dependent)
+    state.phase, state.approved_revision = "approved", 1
+    state.save(path)
+    review_stage(state, path, "core", "", approved=True)
+    for run_id, timestamp, status, verified in [
+        ("old", 1, "completed", True),
+        ("new", 2, "failed", False),
+    ]:
+        folder = execution.run_directory(path) / run_id
+        folder.mkdir(parents=True)
+        execution.Run(
+            id=run_id,
+            created_at=timestamp,
+            task_id=first.id,
+            agent_id=first.agent_id,
+            revision=1,
+            prompt="context",
+            status=status,
+            verified=verified,
+        ).save(folder / "run.json")
+    with pytest.raises(ValueError, match="prerequisite"):
+        execution.start_run(state, path, dependent, {})
+    with pytest.raises(ValueError, match="latest run"):
+        execution.verify_run(path, "old")

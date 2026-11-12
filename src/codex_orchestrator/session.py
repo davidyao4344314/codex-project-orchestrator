@@ -16,6 +16,14 @@ class SessionData(BaseModel):
     def load(cls, path: Path) -> Self:
         return cls.model_validate_json(path.read_bytes())
 
+    def require_current(self, path: Path) -> None:
+        """Reject stale callers before they overwrite another saved update.
+
+        This is an optimistic check, not a multi-process transaction lock.
+        """
+        if type(self).load(path).model_dump() != self.model_dump():
+            raise ValueError("The saved session changed. Refresh before making this update.")
+
     def save(self, path: Path, *, new: bool = False) -> None:
         """Publish a complete JSON file, with exclusive creation for new sessions."""
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -5,14 +5,12 @@ import json
 import streamlit as st
 
 from codex_orchestrator.execution import (
-    Run,
     open_chat,
-    run_directory,
-    runs,
     start_run,
     stop_run,
     verify_run,
 )
+from codex_orchestrator.run_store import Run, latest_runs, read_tail, run_directory, runs
 
 
 @st.fragment(run_every="2s")
@@ -63,7 +61,7 @@ def run_panel(state, path, task, context, action):
     events = folder / "events.jsonl"
     if events.exists():
         st.markdown("**Live Codex output**")
-        for line in events.read_text(errors="replace").splitlines()[-60:]:
+        for line in read_tail(events):
             try:
                 event = json.loads(line)
             except ValueError:
@@ -77,8 +75,13 @@ def run_panel(state, path, task, context, action):
                     st.json(item, expanded=False)
     if run.status == "failed" and (folder / "stderr.log").exists():
         with st.expander("Run diagnostics"):
-            st.code((folder / "stderr.log").read_text(errors="replace")[-8000:])
-    if current and run.revision == len(state.revisions) and run.status == "completed":
+            st.code("\n".join(read_tail(folder / "stderr.log", max_bytes=8000)))
+    if (
+        current
+        and run.revision == len(state.revisions)
+        and run.status == "completed"
+        and latest_runs(path, run.revision)[task.id].id == run.id
+    ):
         accepted = st.checkbox(
             "I reviewed the output and passed this task's automated and human checks",
             key=f"accept_{run.id}",

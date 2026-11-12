@@ -8,6 +8,7 @@ from codex_orchestrator.design_models import DesignSession, StageReview
 
 def review_stage(state: DesignSession, path: Path, stage_id: str, feedback: str, *, approved=False):
     check_source(state)
+    state.require_current(path)
     if not state.revisions or stage_id not in {s.id for s in state.revisions[-1].design.stages}:
         raise ValueError("Choose a stage in the current design.")
     if not approved and not feedback.strip():

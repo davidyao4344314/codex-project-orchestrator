@@ -9,50 +9,23 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 from pathlib import Path
 from uuid import uuid4
-
-from pydantic import Field
 
 from codex_orchestrator.codex import CodexError, find_codex
 from codex_orchestrator.design import check_source
 from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.design_validation import context_blockers, task_graph, validate_design
-from codex_orchestrator.session import SessionData
+from codex_orchestrator.run_store import Run, latest_runs, run_directory, runs
 from codex_orchestrator.stage_review import current_review
+
+RUN_TIMEOUT_SECONDS = 30 * 60
+TERMINATE_GRACE_SECONDS = 5
 
 _guard = threading.Lock()
 _active = {}
 _processes = {}
 _workers = {}
-
-
-class Run(SessionData):
-    id: str
-    created_at: float = Field(default_factory=time.time)
-    task_id: str
-    agent_id: str
-    revision: int
-    status: str = "starting"
-    thread_id: str | None = None
-    model: str | None = None
-    prompt: str
-    error: str | None = None
-    verified: bool = False
-
-
-def run_directory(path):
-    return path.parent / (path.stem + ".runs")
-
-
-def runs(path):
-    folder = run_directory(path)
-    return (
-        sorted((Run.load(p) for p in folder.glob("*/run.json")), key=lambda run: run.created_at)
-        if folder.exists()
-        else []
-    )
 
 
 def project_lock(project):
@@ -68,8 +41,7 @@ def is_busy(project):
 
 def start_run(state, path, task, context):
     check_source(state)
-    if DesignSession.load(path).model_dump() != state.model_dump():
-        raise ValueError("The design changed. Refresh before starting implementation.")
+    state.require_current(path)
     validate_design(state.revisions[-1].design, state.source.brief, Path(state.project))
     if state.phase != "approved":
         raise ValueError("Approve the current technical design before starting implementation.")
@@ -79,7 +51,11 @@ def start_run(state, path, task, context):
     blockers = context_blockers(state.revisions[-1].design, Path(state.project))
     if blockers:
         raise ValueError("Resolve required context first: " + "; ".join(blockers))
-    previous = {r.task_id for r in runs(path) if r.revision == len(state.revisions) and r.verified}
+    previous = {
+        task_id
+        for task_id, run in latest_runs(path, len(state.revisions)).items()
+        if run.verified and run.status == "completed"
+    }
     dependencies = task_graph(state.revisions[-1].design)[task.id]
     if not set(dependencies) <= previous:
         raise ValueError("Verify prerequisite tasks and stages before starting this task.")
@@ -182,12 +158,12 @@ def _worker(executable, project, folder, lock, stop):
                         pass
 
             def monitor():
-                stop.wait(1800)
+                stop.wait(RUN_TIMEOUT_SECONDS)
                 if process.poll() is None:
                     stop.set()
                     terminate()
                     try:
-                        process.wait(timeout=5)
+                        process.wait(timeout=TERMINATE_GRACE_SECONDS)
                     except subprocess.TimeoutExpired:
                         try:
                             os.killpg(process.pid, signal.SIGKILL)
@@ -230,7 +206,7 @@ def _worker(executable, project, folder, lock, stop):
         if process and process.poll() is None:
             os.killpg(process.pid, signal.SIGTERM)
             try:
-                process.wait(timeout=5)
+                process.wait(timeout=TERMINATE_GRACE_SECONDS)
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
@@ -258,6 +234,15 @@ def verify_run(path, run_id):
     run = Run.load(folder / "run.json")
     if run.status != "completed":
         raise ValueError("Only completed runs can be accepted after verification.")
+    state = DesignSession.load(path)
+    check_source(state)
+    if (
+        run.revision != len(state.revisions)
+        or latest_runs(path, run.revision).get(run.task_id).id != run.id
+    ):
+        raise ValueError("Only the latest run of the current design revision can be verified.")
+    if is_busy(state.project):
+        raise ValueError("Wait for the active project run to stop before accepting verification.")
     run.verified = True
     run.save(folder / "run.json")
 

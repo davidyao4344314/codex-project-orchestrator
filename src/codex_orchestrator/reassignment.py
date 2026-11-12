@@ -11,6 +11,7 @@ from codex_orchestrator.execution import is_busy
 
 def reassign(state, path, task_id, agent_id, *, new_role=None, model=None):
     check_source(state)
+    state.require_current(path)
     if is_busy(state.project):
         raise ValueError(
             "Stop the active project run and wait for it to finish before reassigning."
