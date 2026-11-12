@@ -15,7 +15,7 @@ later integrations.
 | Planning services | `planner`, `interactive`, `design` | Intake, requirements, architecture, clarification and revisions |
 | Design rules | `design_validation`, `stage_review`, `reassignment`, `allocation` | Graph/context validation, stage decisions, ownership changes |
 | Job assessment | `job_assessment` | Summarize architect difficulty/team decisions without inference on refresh |
-| Assignment context | `assignment_context` | Build supplied task context without importing Streamlit |
+| Assignment context | `assignment_context`, `context_builder`, `context_models`, `context_files`, `context_handoffs` | Resolve bounded, versioned task packages without inference or UI imports |
 | Read-only Codex adapter | `codex`, `setup`, `explain` | CLI discovery/auth setup, structured responses, explanations |
 | Execution coordinator | `coordinator`, `coordination_store`, `coordinator_view` | Explicit dispatch, pause/resume, stage schedules and acceptance checkpoints |
 | Execution adapter | `execution` | Start/stop Codex, project writer lock, timeout, prerequisites, verification |
@@ -118,3 +118,33 @@ checks. The runner also checks prerequisite stage acceptance, preventing a separ
 implementation button from bypassing that boundary. No merging or independent AI reviewer is
 implemented in this increment. Dispatch, retry, and resume are explicit; polling never starts
 inference. Existing file checkpoints still target one local user, not concurrent server writers.
+
+## Context builder boundary
+
+`assignment_context` selects approved requirement/contract metadata. `context_builder` resolves
+that manifest plus declared files, owned source, local skills, applicable project instructions,
+and verified prerequisite outputs. `context_models` owns limits/resource statuses/package shape;
+`context_files` handles bounded safe local reads; `context_handoffs` restricts run-summary access
+to declared predecessors and recipients. `context_view` renders snapshots and explicit previews.
+
+Packages retain reasons, required/optional status, hashes, source run IDs, warnings and blockers.
+Required resources are prioritized and duplicate resolved files are read once per build. File
+reads, handoff/event tails, resource counts and wire-package bytes are bounded. Required content
+that is missing, excluded, truncated or over budget prevents execution. Discussion can include
+missing-resource descriptions to clarify the plan, while over-budget metadata blocks inference.
+Same-assignment discussion history is limited to 12 messages and 16 KiB; omitted messages are
+counted. Retry prompts include at most three prior-run metadata records, not full transcripts.
+
+The execution adapter rebuilds canonical context under the writer lock, irrespective of a
+caller-provided preview. It saves a run-local context.json and its digest before starting Codex.
+The worker captures a bounded final message for future handoff; older runs use bounded event-tail
+fallback. Only latest completed/user-verified outputs in the current design revision are usable.
+Producer source files are current workspace contents, not a Git snapshot of the earlier run.
+
+Context limits are additive session settings with defaults for older sessions. Changing limits
+only affects future packages, not design scope or existing run snapshots. Package hashes identify
+supplied bytes; they are not a filesystem lock, commit certificate, or token-usage measurement.
+Skill lookup supports local SKILL.md files under the project, ~/.codex/skills, ~/.agents/skills,
+and ~/.codex/plugins. Remote skill resources and recursive skill-resource bundling are not yet
+implemented. Context exclusion heuristics do not guarantee removal of every possible secret.
+The Codex sandbox and its own instruction loading remain separate from package selection.

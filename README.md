@@ -396,3 +396,37 @@ live beside the design under ignored plans storage and survive browser/server re
 This is the first coordinator increment, not the complete Stage 3 pipeline. Independent AI
 review, automatic test-evidence evaluation, verified commits/merges, durable crash recovery,
 and parallel worktrees remain later increments. Human acceptance is not proof of a merge.
+
+## Stage 3: context builder
+
+Open an Agent workspace, choose **Context**, and select **Build context preview**. This
+builds a versioned package locally without inference. It includes approved assignment metadata,
+selected requirements/contracts, stage checks, declared project files, existing owned files,
+applicable project AGENTS.md files, configured local SKILL.md content, and declared upstream
+handoffs. It does not copy another agent's full conversation or crawl the repository.
+
+Each resource shows why it is included, whether it is required, availability, content hash,
+and its source run when applicable. Required missing/excluded/truncated inputs block execution;
+optional inputs produce warnings. Uncreated owned files are expected. A skill with no configured
+location is reported as unconfigured; a configured missing skill blocks implementation.
+
+Default budgets are 128 KiB per package, 24 KiB per file, 16 KiB per handoff, and 32 unique
+resources. **Context budgets** lets you change byte limits for future builds. These are byte
+limits, not billed token counts. Narrow large assignments or raise appropriate limits when
+required resources do not fit; the builder never silently drops required content to launch work.
+
+Handoffs require the latest completed, user-verified prerequisite run from the current design
+revision and a declared recipient when the owner changes. They include its final summary and
+current produced source files. A failed newer attempt prevents reuse of an older success.
+Legacy runs can supply their summary from a bounded tail of existing Codex events.
+
+Execution rebuilds the package under the project writer lock and saves `context.json` beside
+the run, with a digest recorded in run metadata. Use **Context package used for this run → Load
+recorded context package** to inspect/download that snapshot. File/budget changes do not rewrite
+saved run snapshots. The full supplied prompt remains available in the run panel and Codex chat.
+
+Credential/private-key paths, binary files, generated dependency trees, symlink escapes, and
+recognizable credential patterns are excluded from automatic context inclusion. These filters
+are not a comprehensive secret scanner or a filesystem access boundary. Codex still has its own
+configured instructions/tools and sandbox permissions. A preview is a snapshot, not a guarantee
+that a human or native Codex follow-up has not changed the workspace since verification.

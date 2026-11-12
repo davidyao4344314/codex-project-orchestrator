@@ -179,3 +179,34 @@ Automated tests use fake runs/subprocesses and mocked model calls. They check sc
 verification waits, pause/resume, retry, cross-stage gates, revision isolation, read-only
 refreshes, task-workspace navigation, and stage evidence persistence. Real account behavior
 and native chat routing remain manual checks.
+
+## Stage 3 context builder manual acceptance
+
+1. Open an assignment's workspace and Context tab. Select Build context preview. Expect the
+   approved requirements/contracts, scope, owned paths, checks, skill references, and only
+   relevant selected source files. Inspect a file: expect its contents, status, hash and reason.
+   No model request or implementation should start. Download context package should return JSON.
+2. In a disposable project with a declared required input, temporarily rename that input.
+   Rebuild the preview: expect a missing blocker. Dispatch must fail before a worker starts.
+   Restore the input and rebuild to clear it. Missing optional inputs should only warn.
+3. Inspect configured skills. A readable SKILL.md in the project or configured local skill roots
+   should appear. A missing configured skill should block; a null location should show unconfigured.
+   Credential files/binary files/outside-project source links should not be supplied automatically.
+4. If a required file is too large, expect truncated/omitted status and a blocker. Increase
+   Context budgets or narrow the declared input. Save budgets, then rebuild: expect the new limits
+   to persist without inference, starting work, or altering an earlier run's saved package.
+5. For an assignment with required task_output context, build a preview before its producer
+   is verified: expect pending context. Run and verify the producer, then rebuild the consumer's
+   preview. Expect the final handoff summary, verified source run ID, and produced source files.
+   Failed/stopped/unverified runs and unrelated agent conversations must not appear as handoffs.
+6. Dispatch a ready assignment. Inspect Context package used for this run and the exact prompt.
+   Expect a saved package/digest for the inputs used at dispatch. Rebuild the live preview after
+   changing a disposable source file: the live hash should change; the earlier snapshot should not.
+7. Send a plan-discussion message. It should use a discussion package and describe missing
+   prerequisites rather than claim they exist. Long same-task history is bounded and records
+   omission counts in the request; other tasks' chat history is excluded.
+
+Defaults: 128 KiB package, 24 KiB/file, 16 KiB/handoff, 32 resources. UI budgets are explicitly
+saved; previews are explicitly rebuilt. Snapshot inspection is explicitly loaded so polling
+avoids repeatedly resolving source files. Full code and raw logs remain local. Context filtering
+only controls the supplied package; it does not change the Codex sandbox or native instructions.
