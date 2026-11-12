@@ -6,6 +6,7 @@ from pathlib import Path
 import streamlit as st
 from pydantic import Field
 
+from codex_orchestrator.assignment_context import task_context
 from codex_orchestrator.codex import CodexError, codex_response
 from codex_orchestrator.design import check_source
 from codex_orchestrator.design_models import DesignSession
@@ -34,26 +35,6 @@ class AgentChats(SessionData):
 
 class AgentReply(SessionData):
     answer: str
-
-
-def task_context(state, task):
-    """Build the supplied context from this assignment, without other agents' histories."""
-    design = state.revisions[-1].design
-    return {
-        "agent": next(a.model_dump() for a in design.agents if a.id == task.agent_id),
-        "assignment": task.model_dump(),
-        "requirements": {
-            f"R{i}": state.source.brief.requirements[i - 1] for i in task.requirement_ids
-        },
-        "components": [c.model_dump() for c in design.components if c.id in task.component_ids],
-        "interfaces": [
-            i.model_dump()
-            for i in design.interfaces
-            if i.source_component in task.component_ids or i.target_component in task.component_ids
-        ],
-        "project_constraints": state.source.brief.constraints,
-        "project_exclusions": state.source.brief.exclusions,
-    }
 
 
 def ask_agent(state, path, task, question):
