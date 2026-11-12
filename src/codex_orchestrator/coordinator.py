@@ -114,7 +114,9 @@ def stage_schedule(path: Path, stage_id: str) -> StageSchedule:
         return result(
             "awaiting_stage_acceptance", "Review combined stage changes and required human checks."
         )
-    blockers = context_blockers(design, Path(state.project))
+    blockers = context_blockers(
+        design, Path(state.project), task_ids={t.id for t in tasks if t.status == "ready"}
+    )
     if blockers:
         return result("blocked", "; ".join(blockers))
     if any(t.status == "awaiting_verification" for t in tasks):

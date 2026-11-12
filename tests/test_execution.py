@@ -59,6 +59,12 @@ def test_execution_requires_approvals_and_serializes_writers(design, monkeypatch
     run = execution.start_run(state, path, task, {"assignment": task.model_dump()})
     assert run.status == "starting"
     assert "Implement only" in run.prompt
+    from codex_orchestrator.context_models import ContextPackage
+
+    snapshot = ContextPackage.load(execution.run_directory(path) / run.id / "context.json")
+    assert snapshot.task_id == task.id
+    assert snapshot.digest() == run.context_digest
+    assert snapshot.metadata["assignment"] == task.model_dump()
     with pytest.raises(ValueError, match="active"):
         execution.start_run(state, path, task, {})
     execution._active.pop(run.id)
@@ -96,6 +102,7 @@ def test_worker_persists_thread_events_and_releases_lock(tmp_path, monkeypatch, 
     execution._worker("codex", str(tmp_path), folder, lock, threading.Event())
     result = execution.Run.load(folder / "run.json")
     assert result.thread_id == events[0]["thread_id"]
+    assert result.handoff_summary == "Done"
     assert result.status == ("completed" if success else "failed")
     assert not lock.exists()
     assert "workspace-write" in commands[0]

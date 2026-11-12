@@ -160,9 +160,13 @@ def validate_design(design: TechnicalDesign, brief: Brief, project: Path) -> Non
                     )
 
 
-def context_blockers(design: TechnicalDesign, project: Path) -> list[str]:
+def context_blockers(
+    design: TechnicalDesign, project: Path, *, task_ids: set[str] | None = None
+) -> list[str]:
     blockers = []
     for task in design.tasks:
+        if task_ids is not None and task.id not in task_ids:
+            continue
         for item in task.context:
             if item.kind == "project_file" and item.required:
                 if not project_path(project, item.reference).is_file():

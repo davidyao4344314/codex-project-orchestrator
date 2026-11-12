@@ -6,6 +6,7 @@ from typing import Literal
 from codex_orchestrator.assignment_context import task_context
 from codex_orchestrator.codex import CodexError
 from codex_orchestrator.context_files import read_file, resolve_file
+from codex_orchestrator.context_handoffs import handoff_resource
 from codex_orchestrator.context_models import ContextLimits, ContextPackage, ContextResource
 from codex_orchestrator.coordination_store import design_fingerprint
 from codex_orchestrator.design_models import Assignment, DesignSession
@@ -53,6 +54,25 @@ def build_context(
                     status="pending",
                 )
             )
+    for reference in task.context:
+        if reference.kind != "task_output":
+            continue
+        handoff = handoff_resource(state, task, reference, path, limits)
+        resources.append(handoff)
+        if handoff.status == "included":
+            producer = next(t for t in design.tasks if t.id == reference.reference)
+            resources.extend(
+                ContextResource(
+                    kind="upstream_file",
+                    reference=p,
+                    required=reference.required,
+                    missing_action="Restore the producer's output or rerun and verify it.",
+                    reason=f"Current source handed off by {producer.id}",
+                    source_run_id=handoff.source_run_id,
+                    status="pending",
+                )
+                for p in producer.owned_paths
+            )
     resources.extend(
         ContextResource(
             kind="owned_file", reference=p, reason="Current source in owned scope", status="pending"
@@ -71,15 +91,26 @@ def build_context(
                 missing_action="Configure this skill's SKILL.md, or revise the assignment.",
             )
         )
-    if (Path(state.project) / "AGENTS.md").is_file():
-        resources.append(
-            ContextResource(
-                kind="instruction",
-                reference="AGENTS.md",
-                reason="Project-root coding instructions",
-                status="pending",
+    instruction_refs = {"AGENTS.md"}
+    for resource in resources:
+        if resource.kind in {"task_output", "skill"}:
+            continue
+        try:
+            resolved = resolve_file(Path(state.project), resource)
+            relative = resolved.relative_to(Path(state.project).resolve())
+        except (ValueError, OSError, CodexError):
+            continue
+        instruction_refs.update(str(parent / "AGENTS.md") for parent in relative.parents)
+    for reference in sorted(instruction_refs):
+        if (Path(state.project) / reference).is_file():
+            resources.append(
+                ContextResource(
+                    kind="instruction",
+                    reference=reference,
+                    reason="Coding instructions for the selected file scope",
+                    status="pending",
+                )
             )
-        )
     _resolve_resources(package, Path(state.project), resources)
     return package
 
@@ -89,8 +120,8 @@ def _resolve_resources(package, project, resources):
     resources.sort(key=lambda item: not item.required)
     unique = {}
     for item in resources:
-        if item.status == "unconfigured":
-            key = ("unconfigured", item.reference)
+        if item.kind == "task_output" or item.status == "unconfigured":
+            key = (item.kind, item.reference)
         else:
             try:
                 key = str(resolve_file(project, item))
@@ -105,7 +136,7 @@ def _resolve_resources(package, project, resources):
     for index, item in enumerate(unique.values()):
         if index >= package.limits.max_resources:
             item.status = "omitted"
-        elif item.status == "pending":
+        elif item.status == "pending" and item.kind != "task_output":
             item = read_file(project, item, package.limits)
         package.resources.append(item)
         if package.size_bytes() > package.limits.max_package_bytes:

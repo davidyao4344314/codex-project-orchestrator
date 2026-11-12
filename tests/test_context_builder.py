@@ -136,3 +136,179 @@ def test_recognizable_credentials_in_source_are_excluded(context_design):
     file_context(task, "config.py")
     package = build_context(state, task)
     assert package.blockers and key not in package.payload()
+
+
+def handoff_task(state):
+    producer = state.revisions[-1].design.tasks[0]
+    consumer = producer.model_copy(deep=True)
+    consumer.id = "consumer"
+    consumer.owned_paths = []
+    consumer.depends_on = [producer.id]
+    consumer.context = [
+        ContextReference(
+            kind="task_output",
+            reference=producer.id,
+            required=True,
+            reason="Need implementation and test evidence",
+            missing_action="Finish and verify the producer first",
+        )
+    ]
+    state.revisions[-1].design.tasks.append(consumer)
+    return producer, consumer
+
+
+def save_handoff(path, producer, **updates):
+    from codex_orchestrator.run_store import Run, run_directory
+
+    data = dict(
+        id="upstream",
+        task_id=producer.id,
+        agent_id=producer.agent_id,
+        revision=1,
+        status="completed",
+        verified=True,
+        prompt="Unrelated private conversation",
+        handoff_summary="Implemented counter; tests pass",
+    )
+    data.update(updates)
+    run = Run(**data)
+    folder = run_directory(path) / run.id
+    folder.mkdir(parents=True, exist_ok=True)
+    run.save(folder / "run.json")
+    return run, folder
+
+
+def test_verified_declared_handoff_includes_summary_and_source_without_transcript(context_design):
+    state, path = context_design
+    producer, consumer = handoff_task(state)
+    (path.parent / "counter.py").write_text("print('implementation')")
+    run, _ = save_handoff(path, producer)
+    package = build_context(state, consumer, path)
+    assert not package.blockers
+    summary = next(r for r in package.resources if r.kind == "task_output")
+    assert summary.source_run_id == run.id
+    assert summary.content == "Implemented counter; tests pass"
+    assert any(
+        r.kind == "upstream_file" and r.content == "print('implementation')"
+        for r in package.resources
+    )
+    assert "Unrelated private conversation" not in package.payload()
+
+
+@pytest.mark.parametrize("updates", [{"verified": False}, {"status": "failed"}, {"revision": 2}])
+def test_unverified_failed_or_other_revision_output_is_not_handed_off(context_design, updates):
+    state, path = context_design
+    producer, consumer = handoff_task(state)
+    save_handoff(path, producer, **updates)
+    package = build_context(state, consumer, path)
+    resource = next(r for r in package.resources if r.kind == "task_output")
+    assert resource.status == "pending" and resource.content is None
+    assert package.blockers
+    assert "Implemented counter; tests pass" not in package.payload()
+
+
+def test_legacy_run_summary_is_resolved_from_bounded_final_message(context_design):
+    import json
+
+    state, path = context_design
+    producer, consumer = handoff_task(state)
+    (path.parent / "counter.py").write_text("print(1)")
+    _, folder = save_handoff(path, producer, handoff_summary=None)
+    (folder / "events.jsonl").write_text(
+        json.dumps(
+            {
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": "Legacy handoff; focused tests passed"},
+            }
+        )
+        + "\n"
+    )
+    package = build_context(state, consumer, path)
+    assert any(r.content == "Legacy handoff; focused tests passed" for r in package.resources)
+    assert not package.blockers
+
+
+def test_handoff_does_not_fall_back_to_old_success_after_new_failure(context_design):
+    state, path = context_design
+    producer, consumer = handoff_task(state)
+    save_handoff(path, producer, created_at=1)
+    save_handoff(path, producer, id="new-failed", created_at=2, status="failed", verified=False)
+    package = build_context(state, consumer, path)
+    assert package.blockers
+    assert "Implemented counter; tests pass" not in package.payload()
+
+
+def test_missing_context_prevents_worker_start_and_releases_project_lock(
+    context_design, monkeypatch
+):
+    from codex_orchestrator import execution
+    from codex_orchestrator.stage_review import review_stage
+
+    state, path = context_design
+    task = state.revisions[-1].design.tasks[0]
+    file_context(task, "missing-input.py")
+    state.phase, state.approved_revision = "approved", 1
+    state.save(path)
+    review_stage(state, path, task.stage_id, "", approved=True)
+    monkeypatch.setattr(execution, "find_codex", lambda: "fake-codex")
+    monkeypatch.setattr(
+        execution.threading.Thread, "start", lambda self: pytest.fail("Worker started")
+    )
+    with pytest.raises(ValueError, match="Context is incomplete"):
+        execution.start_run(state, path, task, {})
+    assert not execution.is_busy(state.project)
+
+
+def test_unrelated_outputs_and_undeclared_recipients_are_excluded(context_design):
+    state, path = context_design
+    producer, consumer = handoff_task(state)
+    save_handoff(path, producer)
+    consumer.depends_on = []
+    package = build_context(state, consumer, path)
+    assert package.blockers
+    assert "Implemented counter; tests pass" not in package.payload()
+    consumer.depends_on = [producer.id]
+    other = state.revisions[-1].design.agents[0].model_copy(update={"id": "reviewer"})
+    state.revisions[-1].design.agents.append(other)
+    state.revisions[-1].agent_models[other.id] = None
+    consumer.agent_id = other.id
+    package = build_context(state, consumer, path)
+    assert package.blockers
+    assert "Implemented counter; tests pass" not in package.payload()
+
+
+def test_nested_instructions_and_explicit_contract_references_are_scoped(context_design):
+    from codex_orchestrator.design_models import Component, Interface
+
+    state, path = context_design
+    task = state.revisions[-1].design.tasks[0]
+    task.owned_paths = ["src/counter.py"]
+    nested = path.parent / "src"
+    nested.mkdir()
+    (nested / "AGENTS.md").write_text("Use local test conventions")
+    state.revisions[-1].design.components.append(
+        Component(id="shared", name="Contract", responsibility="Shared API", paths=["contract.py"])
+    )
+    state.revisions[-1].design.interfaces.append(
+        Interface(
+            id="shared-api",
+            source_component="shared",
+            target_component=None,
+            inputs=["Input"],
+            outputs=["Output"],
+            errors=[],
+        )
+    )
+    task.context.append(
+        ContextReference(
+            kind="interface",
+            reference="shared-api",
+            required=True,
+            reason="Use shared contract",
+            missing_action="Define it first",
+        )
+    )
+    package = build_context(state, task)
+    assert any(r.content == "Use local test conventions" for r in package.resources)
+    assert any(c["id"] == "shared" for c in package.metadata["components"])
+    assert any(i["id"] == "shared-api" for i in package.metadata["interfaces"])

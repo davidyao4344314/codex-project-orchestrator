@@ -22,21 +22,29 @@ def task_context(state, task):
         raise ValueError("Assignment references unknown components.")
     if not interface_ids <= {i.id for i in design.interfaces}:
         raise ValueError("Assignment references unknown interfaces.")
+    interfaces = [
+        i
+        for i in design.interfaces
+        if i.id in interface_ids
+        or i.source_component in component_ids
+        or i.target_component in component_ids
+    ]
+    for interface in interfaces:
+        component_ids.add(interface.source_component)
+        if interface.target_component:
+            component_ids.add(interface.target_component)
+    agent = next((a for a in design.agents if a.id == task.agent_id), None)
+    if agent is None:
+        raise ValueError("Assignment references an unknown agent.")
     return {
-        "agent": next(a.model_dump() for a in design.agents if a.id == task.agent_id),
+        "agent": agent.model_dump(),
         "assignment": task.model_dump(),
         "allocation_reason": state.revisions[-1].task_allocation_reasons.get(task.id),
         "requirements": {
             f"R{i}": state.source.brief.requirements[i - 1] for i in sorted(requirement_ids)
         },
         "components": [c.model_dump() for c in design.components if c.id in component_ids],
-        "interfaces": [
-            i.model_dump()
-            for i in design.interfaces
-            if i.id in interface_ids
-            or i.source_component in component_ids
-            or i.target_component in component_ids
-        ],
+        "interfaces": [i.model_dump() for i in interfaces],
         "project_constraints": state.source.brief.constraints,
         "project_exclusions": state.source.brief.exclusions,
     }

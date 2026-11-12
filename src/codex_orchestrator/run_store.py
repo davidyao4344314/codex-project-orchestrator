@@ -22,6 +22,9 @@ class Run(SessionData):
     prompt: str
     error: str | None = None
     verified: bool = False
+    context_digest: str | None = None
+    handoff_summary: str | None = None
+    handoff_truncated: bool = False
 
 
 def run_directory(path):
