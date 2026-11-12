@@ -8,6 +8,7 @@ from pydantic import Field
 
 from codex_orchestrator.assignment_context import task_context
 from codex_orchestrator.codex import CodexError, codex_response
+from codex_orchestrator.coordinator_view import coordinator_panel
 from codex_orchestrator.design import check_source
 from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.execution import is_busy, runs
@@ -150,6 +151,7 @@ def dashboard(session, source_path, action, *, workspace_only=False):
     agents = {a.id: a for a in design.agents}
     latest = {r.task_id: r for r in runs(path) if r.revision == len(state.revisions)}
     busy = is_busy(state.project)
+    coordinator_panel(state, path, source_path.name, open_workspace, action)
     st.subheader("Agent task board")
     st.caption(
         "Drag a task to another agent. Reassignment creates a new design revision for review."

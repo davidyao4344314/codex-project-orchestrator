@@ -134,3 +134,31 @@ def test_upstream_stage_needs_acceptance_even_for_individual_runner(coordinated)
         execution.start_run(state, path, task, {})
     coordinator.accept_stage(path, "core", "Checked the combined stage")
     assert coordinator.stage_schedule(path, "delivery").status == "ready"
+
+
+def test_dashboard_polling_is_read_only_and_dispatch_is_explicit(coordinated, monkeypatch):
+    pytest.importorskip("streamlit")
+    from streamlit.testing.v1 import AppTest
+
+    from codex_orchestrator import web
+
+    state, path = coordinated
+    monkeypatch.setenv("ORCHESTRATOR_PLANS", str(path.parent))
+    calls = []
+
+    def start(saved, file, task, context):
+        calls.append(task.id)
+        return record(file, task.id, status="running")
+
+    monkeypatch.setattr(execution, "start_run", start)
+    app = AppTest.from_file(web.__file__).run()
+    next(b for b in app.button if b.label == "Open dashboard").click().run()
+    assert not app.exception
+    assert any(h.value == "Execution coordinator" for h in app.subheader)
+    app.run()
+    assert not app.exception and calls == []
+    next(b for b in app.button if b.label == "Run next ready task").click().run()
+    assert not app.exception and calls == ["implement"]
+    next(b for b in app.button if b.label == "Inspect task and verification").click().run()
+    assert not app.exception
+    assert next(r for r in app.radio if r.label == "Stage").value == "Agent workspace"
