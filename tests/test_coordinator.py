@@ -162,3 +162,47 @@ def test_dashboard_polling_is_read_only_and_dispatch_is_explicit(coordinated, mo
     next(b for b in app.button if b.label == "Inspect task and verification").click().run()
     assert not app.exception
     assert next(r for r in app.radio if r.label == "Stage").value == "Agent workspace"
+
+
+def test_new_revision_does_not_reuse_coordinator_acceptance_or_pause(coordinated):
+    state, path = coordinated
+    for task in state.revisions[-1].design.tasks:
+        record(path, task.id, verified=True)
+    coordinator.accept_stage(path, "core", "Reviewed combined changes")
+    coordinator.pause(path)
+    old_checkpoint = checkpoint_path(state, path)
+    state.revisions.append(state.revisions[-1].model_copy(deep=True))
+    state.phase, state.approved_revision = "review", None
+    state.save(path)
+    current = load_coordination(state, path)
+    assert current.accepted_stages == {} and not current.paused
+    assert checkpoint_path(state, path) != old_checkpoint
+    assert old_checkpoint.exists()
+    assert coordinator.stage_schedule(path, "core").status == "blocked"
+
+
+def test_dashboard_records_stage_evidence_without_starting_work(coordinated, monkeypatch):
+    pytest.importorskip("streamlit")
+    from streamlit.testing.v1 import AppTest
+
+    from codex_orchestrator import web
+
+    state, path = coordinated
+    for task in state.revisions[-1].design.tasks:
+        record(path, task.id, verified=True)
+    monkeypatch.setenv("ORCHESTRATOR_PLANS", str(path.parent))
+    monkeypatch.setattr(execution, "start_run", lambda *a: pytest.fail("Unexpected dispatch"))
+    app = AppTest.from_file(web.__file__).run()
+    next(b for b in app.button if b.label == "Open dashboard").click().run()
+    assert not app.exception
+    next(t for t in app.text_area if t.label == "Review and manual-test evidence").set_value(
+        "Reviewed combined changes. Focused and manual checks passed."
+    )
+    next(c for c in app.checkbox if c.label.startswith("I reviewed the combined stage")).check()
+    next(b for b in app.button if b.label == "Accept stage verification").click().run()
+    assert not app.exception
+    assert coordinator.stage_schedule(path, "core").status == "accepted"
+    assert (
+        "Focused and manual checks passed"
+        in load_coordination(state, path).accepted_stages["core"].evidence
+    )

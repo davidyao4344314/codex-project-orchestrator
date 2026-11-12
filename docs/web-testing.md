@@ -148,3 +148,34 @@ selected by default, with team settings read-only. Switch to Custom team to edit
 roles, or models and use the existing proposal/review flow. Refreshing should not call Codex.
 Manual team revisions should preserve the architect's original recommendation. A newly
 requested architect revision should replace it with that revision's assessment.
+
+## Stage 3 coordinator manual acceptance
+
+Use a disposable sample project. These controls perform real Codex work and edit its files.
+
+1. Approve the current technical design and the first stage's plan. On Dashboard, choose
+   that delivery stage in Execution coordinator. Expect ready tasks and queued dependencies.
+2. Select Run next ready task once. Expect exactly one assignment to start using its assigned
+   agent/model/context. Refresh: no second task should start. Inspect task and verification
+   should open the matching workspace with output, code, and its Codex chat button.
+3. When the task completes, run its required manual checks and accept task verification in
+   the workspace. Return to Dashboard: the next eligible task should become ready. Dispatch
+   it explicitly. Until acceptance, the coordinator should report awaiting verification.
+4. Pause during a disposable run. Expect a saved paused state and a stop request. Wait for
+   the process to stop. Resume should only clear the pause; Retry failed or stopped task is
+   a separate explicit action. Edits already made should remain available to the new attempt.
+5. After all stage tasks have accepted verification, inspect the required stage evidence and
+   human-check list. Enter actual review/test evidence, check the confirmation, and accept
+   stage verification. Expect accepted status; this does not merge the code.
+6. Select a dependent stage. Its dispatch must stay blocked before prerequisite stage
+   acceptance. Once its prerequisites and its own plan/design approvals are satisfied,
+   it may dispatch a ready task. The individual-task Start implementation control must also
+   enforce prerequisite stage acceptance.
+7. A failed/stopped run must block ordinary dispatch and offer explicit retry. Reloading
+   should retain history and pause/acceptance checkpoints. New design revisions must not
+   inherit the old coordinator's acceptance or verification records.
+
+Automated tests use fake runs/subprocesses and mocked model calls. They check scheduling,
+verification waits, pause/resume, retry, cross-stage gates, revision isolation, read-only
+refreshes, task-workspace navigation, and stage evidence persistence. Real account behavior
+and native chat routing remain manual checks.

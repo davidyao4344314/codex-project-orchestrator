@@ -372,3 +372,27 @@ count, roles, or concrete model IDs. Overall complexity summarizes the hardest p
 The assessment uses the latest architect revision, so manual reallocations do not erase the
 original recommendation. No extra assessment call runs on page load or refresh. Existing
 projects show their stored planner decisions; a new technical-design revision reassesses them.
+
+## Stage 3: execution coordinator
+
+The project Dashboard now includes **Execution coordinator**. Select a delivery stage and
+choose **Run next ready task**. The coordinator uses the existing runner and the assigned
+agent/model/context, selects a task whose prerequisites have accepted verification, and
+keeps project writes sequential. Inspect task and verification opens its agent workspace
+for live output, the native Codex chat, and task-level verification controls.
+
+After each task completes, review its checks and accept task verification. Return to the
+Dashboard and dispatch the next ready task. Refresh/polling never dispatches jobs. Failed
+or stopped attempts block the stage until an explicit retry. **Pause coordinator** saves a
+checkpoint and requests cancellation of an active run in this design; **Resume coordinator**
+clears the pause but does not itself launch work. Existing changes remain on disk for retries.
+
+When all stage tasks have accepted verification, record review/manual-test evidence and
+choose **Accept stage verification**. Dependent stages cannot start before this acceptance,
+even through the individual-task runner. Acceptance is tied to the latest verified run IDs
+and the design revision, so a new attempt invalidates the previous acceptance. Checkpoints
+live beside the design under ignored plans storage and survive browser/server restarts.
+
+This is the first coordinator increment, not the complete Stage 3 pipeline. Independent AI
+review, automatic test-evidence evaluation, verified commits/merges, durable crash recovery,
+and parallel worktrees remain later increments. Human acceptance is not proof of a merge.

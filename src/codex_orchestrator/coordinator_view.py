@@ -77,7 +77,8 @@ def progress(path: Path, stage_id: str, source_name, on_open, action):
         st.markdown("**Your manual checks**")
         for check in stage.gate.user_checks:
             st.markdown(f"- {check}")
-        with st.form(f"accept_stage_{path.name}_{stage_id}_{len(state.revisions)}"):
+        attempt_key = "_".join(t.run_id or "none" for t in schedule.tasks)
+        with st.form(f"accept_stage_{path.name}_{stage_id}_{len(state.revisions)}_{attempt_key}"):
             evidence = st.text_area("Review and manual-test evidence")
             accepted = st.checkbox(
                 "I reviewed the combined stage changes and passed the required checks"

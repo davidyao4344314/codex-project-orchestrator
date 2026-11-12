@@ -17,6 +17,7 @@ later integrations.
 | Job assessment | `job_assessment` | Summarize architect difficulty/team decisions without inference on refresh |
 | Assignment context | `assignment_context` | Build supplied task context without importing Streamlit |
 | Read-only Codex adapter | `codex`, `setup`, `explain` | CLI discovery/auth setup, structured responses, explanations |
+| Execution coordinator | `coordinator`, `coordination_store`, `coordinator_view` | Explicit dispatch, pause/resume, stage schedules and acceptance checkpoints |
 | Execution adapter | `execution` | Start/stop Codex, project writer lock, timeout, prerequisites, verification |
 | Run storage | `run_store` | Validated snapshots, bounded cache and log previews, latest-attempt lookup |
 | Terminal interface | `cli`, `design_display` | Arguments, prompts and terminal presentation |
@@ -102,3 +103,18 @@ context references, or check definitions. Validation requires exact coverage and
 responsibility for every selected agent, and preserves required human review. Applying the
 proposal creates a new revision and clears approval. `allocation_view` only renders sidebar
 settings and proposal review. Roster preferences have defaults so older sessions still load.
+
+## Coordinator boundary
+
+The coordinator reads current run snapshots and derives a stage schedule; observation has
+no execution side effects. Explicit dispatch calls the existing runner with assignment_context.
+It does not implement a second Codex transport. Checkpoints are versioned and bound to the
+full design revision fingerprint, with acceptance tied to latest verified run IDs. Pauses and
+acceptance persist, but crash supervision of subprocesses remains the runner's existing limit.
+
+The coordinator stops at verification waits rather than treating turn completion as success.
+Task verification is user-attested; stage acceptance records combined-change review and human
+checks. The runner also checks prerequisite stage acceptance, preventing a separate Start
+implementation button from bypassing that boundary. No merging or independent AI reviewer is
+implemented in this increment. Dispatch, retry, and resume are explicit; polling never starts
+inference. Existing file checkpoints still target one local user, not concurrent server writers.
