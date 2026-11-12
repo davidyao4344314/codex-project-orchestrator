@@ -65,9 +65,11 @@ def advance_requirements(session, path):
         generate_plan(session, path)
 
 
-def sample_project():
-    destination = PLANS / "samples" / f"reading-list-{uuid4().hex[:8]}"
-    shutil.copytree(ROOT / "examples" / "reading-list", destination)
+def sample_project(template="reading-list"):
+    if template not in {"reading-list", "worker-smoke"}:
+        raise ValueError("Unknown sample project.")
+    destination = PLANS / "samples" / f"{template}-{uuid4().hex[:8]}"
+    shutil.copytree(ROOT / "examples" / template, destination)
     # Isolate project discovery from the orchestrator's own parent Git repository.
     result = subprocess.run(
         ["git", "init", "-b", "main", str(destination)], capture_output=True, check=False
@@ -127,12 +129,19 @@ def connection():
 def new_project():
     st.title("What are we building?")
     st.write("Turn an idea into requirements, a technical design, and clear agent handoffs.")
+    template = None
     if st.button("Try sample project", icon="📚"):
+        template = "reading-list"
+    if st.button("Try worker test project", icon="🛠️"):
+        template = "worker-smoke"
+    if template:
         try:
-            project, brief = sample_project()
+            project, brief = sample_project(template)
             st.session_state.new_project = str(project)
             st.session_state.new_idea = brief
-            st.session_state.new_name = "Reading list"
+            st.session_state.new_name = (
+                "Reading list" if template == "reading-list" else "Worker smoke"
+            )
         except (OSError, ValueError) as exc:
             st.error(str(exc))
     with st.form("new_session"):

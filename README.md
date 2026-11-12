@@ -430,3 +430,26 @@ recognizable credential patterns are excluded from automatic context inclusion. 
 are not a comprehensive secret scanner or a filesystem access boundary. Codex still has its own
 configured instructions/tools and sandbox permissions. A preview is a snapshot, not a guarantee
 that a human or native Codex follow-up has not changed the workspace since verification.
+
+## Stage 3: worker agents
+
+All task workstreams now have worker profiles: frontend, backend, database, integration, and
+general. Assignments with empty owned_paths select the read-only verification profile. Workers
+use the approved context, configured skills, assigned model and ownership, with focused instructions
+for their domain. They return structured completion/blocked/failure reports rather than a prose-only
+success message. The coordinator still dispatches one task at a time.
+
+Each planned check has an ID. Reports are validated against the assigned identity/context and
+matched to observed command/exit-code events. Workspace snapshots compare actual edits against
+reported changes and owned files. Unsupported pass claims and scope violations block verification;
+failed or invalid reports fail. Checks still require human review for semantic adequacy. Accepting
+verification also rejects modified report artifacts or changed audited inputs/outputs.
+
+The workspace now displays Worker report, remaining human checks, and Load worker evidence
+for command output and diffs. To try every worker type, choose **New project → Try worker test
+project** and follow the [worker testing checklist](docs/worker-testing.md). Automated tests use
+local fake Codex programs; real model behavior and native chat routing need your manual acceptance.
+
+The CLI integration follows the [official structured-output Codex example](https://developers.openai.com/cookbook/examples/codex/build_iterative_repair_loops_with_codex).
+Per-file ownership is post-run detection within the existing project sandbox, not a permissions
+boundary. The runner leaves edits intact for review and never automatically rolls them back.

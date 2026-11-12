@@ -16,13 +16,19 @@ def text_input(app, label):
     return next(item for item in app.text_input if item.label == label)
 
 
-def test_sample_project_prefills_a_separate_starter(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "sample_button, project_name",
+    [("Try sample project", "Reading list"), ("Try worker test project", "Worker smoke")],
+)
+def test_sample_project_prefills_a_separate_starter(
+    tmp_path, monkeypatch, sample_button, project_name
+):
     monkeypatch.setenv("ORCHESTRATOR_PLANS", str(tmp_path / "plans"))
     app = AppTest.from_file(web.__file__).run()
     assert not app.exception
-    button(app, "Try sample project").click().run()
+    button(app, sample_button).click().run()
     assert not app.exception
-    assert text_input(app, "Project name").value == "Reading list"
+    assert text_input(app, "Project name").value == project_name
     project = text_input(app, "Local project folder").value
     from pathlib import Path
 

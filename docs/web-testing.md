@@ -162,7 +162,7 @@ Use a disposable sample project. These controls perform real Codex work and edit
    the workspace. Return to Dashboard: the next eligible task should become ready. Dispatch
    it explicitly. Until acceptance, the coordinator should report awaiting verification.
 4. Pause during a disposable run. Expect a saved paused state and a stop request. Wait for
-   the process to stop. Resume should only clear the pause; Retry failed or stopped task is
+   the process to stop. Resume should only clear the pause; Retry failed, blocked, or stopped task is
    a separate explicit action. Edits already made should remain available to the new attempt.
 5. After all stage tasks have accepted verification, inspect the required stage evidence and
    human-check list. Enter actual review/test evidence, check the confirmation, and accept
@@ -210,3 +210,12 @@ Defaults: 128 KiB package, 24 KiB/file, 16 KiB/handoff, 32 resources. UI budgets
 saved; previews are explicitly rebuilt. Snapshot inspection is explicitly loaded so polling
 avoids repeatedly resolving source files. Full code and raw logs remain local. Context filtering
 only controls the supplied package; it does not change the Codex sandbox or native instructions.
+
+
+## Worker reports and all-profile acceptance
+
+Use [worker-testing.md](worker-testing.md) for the current worker flow, the supplied Notes
+starter, per-profile expectations, evidence inspection, failure/retry checks, and run artifacts.
+New workers require structured results and observed evidence; historical runs remain visible
+without fabricated reports. A completed new worker still requires user verification and stage
+acceptance before dependent stages proceed.

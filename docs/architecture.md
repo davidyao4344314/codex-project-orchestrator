@@ -18,6 +18,7 @@ later integrations.
 | Assignment context | `assignment_context`, `context_builder`, `context_models`, `context_files`, `context_handoffs` | Resolve bounded, versioned task packages without inference or UI imports |
 | Read-only Codex adapter | `codex`, `setup`, `explain` | CLI discovery/auth setup, structured responses, explanations |
 | Execution coordinator | `coordinator`, `coordination_store`, `coordinator_view` | Explicit dispatch, pause/resume, stage schedules and acceptance checkpoints |
+| Worker layer | `worker_models`, `worker_profiles`, `worker_runtime`, `worker_results`, `worker_audit`, `worker_view` | Role-specific execution contracts, reports, observed evidence and review display |
 | Execution adapter | `execution` | Start/stop Codex, project writer lock, timeout, prerequisites, verification |
 | Run storage | `run_store` | Validated snapshots, bounded cache and log previews, latest-attempt lookup |
 | Terminal interface | `cli`, `design_display` | Arguments, prompts and terminal presentation |
@@ -148,3 +149,26 @@ Skill lookup supports local SKILL.md files under the project, ~/.codex/skills, ~
 and ~/.codex/plugins. Remote skill resources and recursive skill-resource bundling are not yet
 implemented. Context exclusion heuristics do not guarantee removal of every possible secret.
 The Codex sandbox and its own instruction loading remain separate from package selection.
+
+## Worker boundary
+
+The six profiles share the existing Codex subprocess harness. `worker_profiles` derives a contract
+from the context snapshot, normalizes ownership and selects read-only for no-write assignments.
+`worker_models` defines the structured report schema. The CLI receives output-schema and
+output-last-message paths; reports are validated locally before a new-contract run can complete.
+Legacy runs stay readable with additive defaults and do not gain invented evidence.
+
+`worker_audit` snapshots owned/context paths plus Git-visible dirt and observes final changes.
+It preserves pre-existing edits, excludes the run artifact directory, and bounds hashing/diffs.
+`worker_results` matches planned check IDs to actual completed command events and exit codes,
+validates identity/scope/coverage, and preserves required manual checks. `worker_runtime` prepares
+artifacts and finalizes reports; `worker_view` renders them without invoking a model. Verification
+checks report integrity and watched source hashes at acceptance time. Later edits still require
+manual re-verification; old accepted runs are not continuously supervised or invalidated.
+
+A valid JSON report or zero exit code does not establish semantic correctness or test adequacy.
+The user gate remains. Ownership is detected post-run, not isolated per file; audits are bounded
+and cannot exhaustively capture ignored/reverted/outside-project writes. Read-only workers use
+the CLI read-only sandbox. This worker layer does not add an independent reviewer, parallel
+execution, automatic merges, or destructive rollback. See worker-testing.md for acceptance and
+recovery checks, artifact names, exact audit limits and the all-profile sample.
