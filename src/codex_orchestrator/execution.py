@@ -13,6 +13,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from codex_orchestrator.codex import CodexError, find_codex
+from codex_orchestrator.coordination_store import check_stage_prerequisites, load_coordination
 from codex_orchestrator.design import check_source
 from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.design_validation import context_blockers, task_graph, validate_design
@@ -45,6 +46,9 @@ def start_run(state, path, task, context):
     validate_design(state.revisions[-1].design, state.source.brief, Path(state.project))
     if state.phase != "approved":
         raise ValueError("Approve the current technical design before starting implementation.")
+    if load_coordination(state, path).paused:
+        raise ValueError("Resume the paused execution coordinator before starting a task.")
+    check_stage_prerequisites(state, path, task.stage_id)
     review = current_review(state, task.stage_id)
     if not review or not review.approved:
         raise ValueError("Approve this stage's plan before starting implementation.")
