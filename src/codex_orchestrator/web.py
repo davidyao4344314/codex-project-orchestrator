@@ -9,6 +9,7 @@ from uuid import uuid4
 import streamlit as st
 from pydantic import ValidationError
 
+from codex_orchestrator.allocation_view import allocation_sidebar
 from codex_orchestrator.codex import CodexError, find_codex
 from codex_orchestrator.dashboard import dashboard
 from codex_orchestrator.design import (
@@ -454,6 +455,7 @@ def main():
     path = Path(active)
     try:
         session = PlanningSession.load(path)
+        allocation_sidebar(path, action)
         st.title(session.project_name)
         st.caption(session.project)
         view = st.radio(

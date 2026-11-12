@@ -17,6 +17,8 @@ def workflow_view(state, path, action):
     design = revision.design
     project = Path(state.project)
     st.write(design.overview)
+    if revision.allocation_rationale:
+        st.info(revision.allocation_rationale)
     st.caption(
         f"Design revision {len(state.revisions)} · {revision.origin.replace('_', ' ')} · "
         f"{model_label(revision.requested_model, revision.reported_model)}"
@@ -137,6 +139,8 @@ def workflow_view(state, path, action):
                 st.markdown(f"**{task.title}**")
                 st.caption(f"Owner · {task.agent_id}  |  Difficulty · {task.difficulty}")
                 st.write(task.description)
+                if reason := revision.task_allocation_reasons.get(task.id):
+                    st.caption("Assignment reason · " + reason)
                 st.write("Owned files", ", ".join(task.owned_paths) or "Read-only review")
                 bullet_list(task.exclusions)
                 with st.expander(f"Context and handoff · {task.id}"):
