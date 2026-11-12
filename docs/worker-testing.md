@@ -79,11 +79,12 @@ Run `python -m streamlit run app.py` in the copied project's environment.
 | Resume coordinator | Clears pause only; dispatch/retry still requires a separate explicit click |
 | Missing required context/skill | Worker is not launched; preview explains what needs resolving |
 | Failed automated check | Worker fails; downstream work and verification acceptance stay blocked |
-| Report says passed without matching command evidence | Runner blocks the result; inspect violations and retry after fixing the cause |
+| Report says passed without matching command evidence | Runner blocks the result; the command must match exactly, including shell wrapper and quoting |
 | Unreported or out-of-scope file edits | Runner blocks verification and shows observed paths; changes remain for inspection |
 | Invalid/missing JSON report | Run fails with diagnostics; it does not become a usable verified handoff |
 | Worker reports an unavailable runtime/input | Blocked outcome and reason; provide the missing input and explicitly retry |
 | Edit an audited input/output after worker completion | Accept verification rejects stale output; rerun against the changed source |
+| Change a new run's saved worker contract or final snapshot | Accept verification rejects inconsistent artifacts; inspect and rerun |
 | Refresh/reopen a run | No new job; report, context, logs, and prior attempts remain available |
 
 Unsupported pass claims, malformed reports, unauthorized edits, timeout handling, and all six
@@ -108,8 +109,15 @@ not prevented per file, and no automatic rollback occurs.
 Audit budgets are 2,000 paths, 4 MiB/file and 64 MiB of hashing per snapshot, 24 KiB text/file,
 and 96 KiB total diff preview. Command evidence retains the latest 200 completed command events
 with bounded output previews. The JSON result limit is 256 KiB. Large/special owned files may
-require manual investigation; raw Codex logs remain local. Existing pre-contract runs retain
-legacy user-attested verification rather than acquiring fabricated structured evidence.
+require manual investigation and block completion when they cannot be audited before or after
+execution. Concurrent changes during an audit are marked unreadable rather than trusted; reads
+stay within the remaining byte budget. Raw Codex logs remain local.
+
+New runs record specification and final-snapshot hashes in run.json in addition to the report
+hash. Earlier structured runs without the new hashes remain readable with their original
+verification checks. Existing pre-contract runs retain legacy user-attested verification rather
+than acquiring fabricated evidence. Hashes are consistency checks, not signatures protecting
+against someone who can also rewrite run.json.
 
 This completes the worker layer. Independent stage-wide AI review, automatic regression grading,
 parallel worktrees, durable crash supervision, and merge automation are separate increments.

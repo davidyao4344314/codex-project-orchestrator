@@ -163,8 +163,19 @@ It preserves pre-existing edits, excludes the run artifact directory, and bounds
 `worker_results` matches planned check IDs to actual completed command events and exit codes,
 validates identity/scope/coverage, and preserves required manual checks. `worker_runtime` prepares
 artifacts and finalizes reports; `worker_view` renders them without invoking a model. Verification
-checks report integrity and watched source hashes at acceptance time. Later edits still require
+checks report integrity and watched source hashes at acceptance time. New runs also bind the
+full worker specification and final workspace snapshot to digests in run.json; contract checks
+run before launching the subprocess as well. Existing records without those additive digests
+retain their earlier verification behavior. These hashes detect inconsistent artifacts, not
+malicious changes by an actor able to rewrite the run record itself. Later edits still require
 manual re-verification; old accepted runs are not continuously supervised or invalidated.
+
+Check evidence requires the exact recorded command string: shell wrappers, positional arguments,
+and quoting can change behavior and are not normalized away. File observations open descriptors
+with nonblocking/no-follow flags and reject special files or files changed while being read.
+Reads respect the remaining snapshot byte budget, including discarded race reads. An unreadable
+assigned input/output before or after a run blocks completion. These checks complement the CLI
+sandbox; they do not implement a complete filesystem race or isolation boundary.
 
 A valid JSON report or zero exit code does not establish semantic correctness or test adequacy.
 The user gate remains. Ownership is detected post-run, not isolated per file; audits are bounded
@@ -172,3 +183,5 @@ and cannot exhaustively capture ignored/reverted/outside-project writes. Read-on
 the CLI read-only sandbox. This worker layer does not add an independent reviewer, parallel
 execution, automatic merges, or destructive rollback. See worker-testing.md for acceptance and
 recovery checks, artifact names, exact audit limits and the all-profile sample.
+
+See quality-review.md for the worker review findings, regression coverage, and maintenance priorities.
