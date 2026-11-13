@@ -206,27 +206,25 @@ queue. External editors and Git hooks can still modify files independently of th
 
 ## Independent review and publishing gate
 
-`review_store` defines structured decisions, immutable history entries, input snapshots and an
-opt-in destination policy. `review_agent` builds a bounded review package using assignment_context,
-then calls the existing read-only Codex adapter in a separate ephemeral turn. `review_view` exposes
-explicit review/settings actions. Required stage tests and human acceptance remain prerequisites.
+The sequence is mandatory AI approval, local commit, then explicit user permission before push.
+`review_store.require_reviewer` enforces a current independent decision for selected changes.
+Human confirmation cannot override a blocked or missing AI review. The commit receipt binds both
+the AI reviewer ID/digest and any separate user file-review record, plus attempt/evidence hashes.
 
-Git previews bind exact diffs, selected contents, design and latest attempt/evidence fingerprints.
-User approval is a recorded action; reviewer approval is saved only from a separately validated
-response. A pending blocked record supersedes an old reviewer decision before inference, so a
-failed/timed-out attempt cannot leave that older decision usable. Inputs are rechecked after the
-call. Review inputs/results remain local artifacts; polling never invokes the reviewer.
+`review_agent` calls the existing read-only Codex adapter in a separate ephemeral turn. A pending
+blocked record supersedes an older review before inference, so errors cannot preserve an old
+approval. Inputs are bounded to 256 KiB and checked after inference. Stage tests and human stage
+acceptance still apply. The reviewer never commits or pushes; legacy combined-publication requests
+are explicitly rejected. Legacy automatic-push policy fields load but are not honored.
 
-The Git service requires a current approval ID to commit and binds its digest plus attempt/evidence
-digest into the publication receipt. It rechecks those before pushing and compares the committed
-tree with the reviewed staged tree to detect hook edits. Reviewer publication additionally needs
-an explicit policy bound to the current orchestrator/ branch and remote; human approval is the
-default. Disabling the policy blocks reviewer-based retries. The explicit review-and-publish action
-holds the shared writer lock through review, commit and push; no automatic task dispatch or merge
-is introduced. The worker subprocess retains its prohibition on Git publication.
+`git_view` shows the AI review, local commit SHA, branch and remote, then requires a checkbox and
+an explicit Approve and push action. `PushPermission` binds that request to the displayed commit
+and destination. The service rejects a missing or mismatched permission, then rechecks AI approval,
+evidence, source, HEAD and destination under the shared writer lock. Permission is passed for this
+request rather than stored as a standing grant. A retry also needs a deliberate user push action.
+Polling never reviews or publishes. No automatic merge or deployment is implemented.
 
-Records use additive defaults. Old receipts without approval are readable but cannot gain invented
-approval. Review packages are limited to 256 KiB; evidence reads to 2 MiB. Hashes/checkpoints enforce
-application consistency, not isolation from a malicious actor who can rewrite the application or
-its local state. Durable background supervision and transactional multi-user storage remain future
-work, as do quantitative evaluation of reviewer quality and token/cost benefits.
+Checkpoint fields are additive. Old receipts missing required AI-review bindings remain readable
+but fail closed at publication. Hashes enforce application consistency, not isolation from actors
+who can rewrite local code/state. External editors and Git hooks remain outside the application
+lock. Durable supervision, transactional storage and quantitative review evaluation remain future work.

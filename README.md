@@ -46,11 +46,12 @@ flowchart TD
     Accept -->|Accept| More{More delivery stages?}
     More -->|Yes| StagePlan
     More -->|No| Git[Preview accepted stage files in Git connection]
-    Git --> Approval{User or independent reviewer approves exact changes?}
-    Approval -->|User approval| Commit[Commit reviewed changes]
-    Approval -->|Reviewer approval and opt-in policy| Commit
+    Git --> Approval{Independent AI reviewer approves exact changes?}
+    Approval -->|Approved| Commit[Prepare local commit]
     Approval -->|Changes requested or blocked| Inspect
-    Commit --> Push[Publish approved commit to connected branch]
+    Commit --> Permission{User gives permission for this commit and destination?}
+    Permission -->|Yes| Push[Push approved commit]
+    Permission -->|No or not yet| Local[Keep local commit; do not push]
     Push --> Done[Final human review and manual merge]
 ```
 
@@ -557,9 +558,10 @@ locally; it does not create a hosted repository or validate network access. Push
 2. Select the stage in Git connection and choose **Preview accepted stage changes**.
 3. Inspect the diff and file list. Only changed owned files from that stage are eligible. To
    narrow the list, select files and choose **Update preview for selected files**.
-4. Enter a commit message, confirm that you reviewed the files, and choose **Commit reviewed AI
-   changes**. A commit is local and does not push anything.
-5. Inspect the commit SHA, remote and branch; choose **Push committed AI changes**. Pushing
+4. Run **Run independent review** and resolve any blocking findings. After AI approval, enter a
+   commit message, confirm your file review, and choose **Commit reviewed AI changes**. This is local.
+5. Inspect the AI review, commit SHA, remote and branch. Tick the permission checkbox and choose
+   **Approve and push this commit**. Pushing
    publishes the commit and its existing branch history. It uses a normal push, with no force,
    pull, merge, branch switching or deployment. A rejected push needs terminal investigation.
 
@@ -581,51 +583,42 @@ then push. Expect only selected files in the commit and the displayed SHA on the
 Refresh before each action to confirm nothing publishes automatically. Fake-worker tests cover
 stage gates, stale previews, index isolation, push failure/retry, and dashboard refresh behavior.
 
-## Independent reviewer and approval-gated publishing
+## Independent reviewer and permission before push
 
-The Git panel now offers **Run independent review** after building an accepted-stage preview.
-The reviewer uses a separate, ephemeral, read-only Codex turn. It receives selected source and
-full diffs, approved requirements, stage gates, task context, worker reports and matching command
-results. It evaluates correctness, scope and test adequacy without implementing fixes or claiming
-it executed tests. Decisions are **approved**, **changes_requested**, or **blocked**. Blocking
-findings or additional outstanding human checks cannot be approved.
+The required sequence is **AI review → local commit → your explicit permission → push**.
+There is no automatic-push mode. Existing saved opt-in settings are ignored, and the former
+review-and-publish API rejects combined publication requests.
 
-**Human approval remains the default.** The existing commit confirmation now saves a user approval
-record. Both commit and push enforce approval in Python services, rather than relying on button
-visibility. A user may explicitly approve after reviewing a model's concerns; required passing
-worker checks and human stage acceptance still apply in either mode. An implementation worker
-cannot submit a reviewer decision through the worker-result contract.
+1. Finish task tests and required human stage acceptance. Build a preview in Git connection.
+2. Choose **Run independent review**. A separate read-only Codex turn inspects selected source,
+   full diffs, requirements, stage gates and recorded command evidence. Set its model in
+   **Review and publishing settings**. It returns approved, changes_requested or blocked.
+3. Read findings and optionally **Load reviewer input**. A blocking finding, incomplete evidence
+   or additional outstanding human checks prevents approval. Fix problems, rerun the worker
+   checks and accept the stage again before a fresh review. User confirmation cannot bypass
+   mandatory AI review.
+4. After AI approval, confirm your file review and choose **Commit reviewed AI changes**. This
+   creates only a local commit. Development branches under orchestrator/ remain recommended;
+   **Create development branch** is available in settings.
+5. The app shows the AI review, exact commit SHA, branch and remote, then asks permission to push.
+   Tick **I give permission to push this commit to the destination shown above** and click
+   **Approve and push this commit**. Leaving it unchecked or leaving the page keeps work local.
 
-For reviewer-approved publishing:
+Neither AI approval, a local commit, nor stage acceptance grants push permission. Every push
+request—including a retry—needs an explicit user action scoped to that commit and destination.
+Refresh never calls the reviewer or publisher. There is no automatic merge or deployment.
 
-1. In **Git connection → Review and publishing settings**, create a development branch such as
-   `orchestrator/stage-work`, or switch to an existing `orchestrator/` branch in your terminal.
-2. Set the reviewer model (`default` uses your Codex configuration). Enable **Allow
-   reviewer-approved commit and push**, then **Save review settings**. This authorizes only
-   the current branch and push remote. It cannot enable automatic publishing to main/master.
-3. Build a fresh preview and select the files to review. **Run independent review** saves a
-   decision only. **Review and publish if approved** starts the review and, on approval, lets
-   the coordinator commit and push without another confirmation. Nothing happens on refresh
-   or merely because a worker finishes.
-4. Read findings and use **Load reviewer input** to inspect the saved context. If changes are
-   requested, fix them through the worker, rerun checks and accept the stage again before
-   reviewing a fresh preview. Newly requested human checks require your review; the reviewer
-   cannot tick them off for you.
+AI approvals bind selected contents/diffs, design, latest task attempts, evidence, base HEAD,
+branch and remote. A newer review supersedes the old decision, including a failed/timed-out
+review. Changes invalidate approval. Commit receipts bind the required AI review, evidence and
+selected tree; changed inputs or altered reviews block pushing. A permission for a different
+commit, branch or remote is rejected by the Git service, even if called outside the UI.
 
-Approvals bind selected file contents/diffs, design, task attempt IDs, test evidence, base HEAD,
-branch and remote. Changed inputs require fresh approval. Starting a new review supersedes an
-older reviewer approval even if the new call errors or times out. A user approval is recorded
-separately. Publication receipts bind approval and evidence hashes to the commit; changed evidence,
-new task attempts, modified approval records or disabled reviewer publishing block push retries.
-Git hooks that change the staged commit tree also block publication of that commit.
+Review inputs are limited to 256 KiB and never silently truncated. Artifacts are stored beside
+the design in .reviews.json, .review-policy.json and .review-inputs/ (ignored under plans/ by
+default). Older receipts without the required AI review remain readable but cannot be published
+through the new gate. Inspect such commits in your terminal.
 
-Review input is limited to 256 KiB and is never silently truncated to fit. Narrow the selected
-files if necessary. Reviews and policy are saved beside the design as `.reviews.json` and
-`.review-policy.json`, with bounded input snapshots under `.review-inputs/`; default plans/ storage
-is ignored by Git. Previous publication receipts without approval records remain readable but
-cannot be pushed through the new gate; inspect those commits in your terminal.
-
-This is an independent model assessment, not a guarantee of correctness. Existing manual stage
-tests, ordinary Git authentication, sequential writer locking and manual merge/deployment remain.
-The application lock cannot control external editors, native follow-ups or user-configured hooks.
-See [reviewer acceptance tests](docs/reviewer-testing.md).
+This is model review plus user permission, not a correctness guarantee or isolation from someone
+who can rewrite local application state. Required tests, ordinary Git authentication, sequential
+writer locking and manual merge/deployment remain. See [reviewer acceptance tests](docs/reviewer-testing.md).
