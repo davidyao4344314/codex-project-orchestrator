@@ -185,3 +185,20 @@ execution, automatic merges, or destructive rollback. See worker-testing.md for 
 recovery checks, artifact names, exact audit limits and the all-profile sample.
 
 See quality-review.md for the worker review findings, regression coverage, and maintenance priorities.
+
+
+## Git publication boundary
+
+`git_service` owns repository initialization, credential-free origin connection, accepted-stage
+previews, scoped commits and explicit pushes. `git_view` renders the dashboard panel; it does
+not call a model. Publication rechecks latest structured worker verification and stage acceptance.
+Git writes acquire the same project lock as execution. Preview fingerprints bind selected bytes,
+design revision, HEAD, branch and push destination; unrelated staged changes block committing.
+Paths are literal Git pathspecs. A saved publication receipt binds commit SHA, design, branch,
+remote and paths for retry; push checks those before a normal explicit refspec push.
+
+Git authentication stays with the user's credential helper/SSH tooling. Noninteractive subprocesses
+have bounded captured output and a timeout; errors omit raw output that might expose URLs with
+credentials. The service does not create hosted repositories, force push, merge, or grant workers
+independent Git access. Local JSON checkpoints remain single-user storage, not a durable Git job
+queue. External editors and Git hooks can still modify files independently of the application lock.

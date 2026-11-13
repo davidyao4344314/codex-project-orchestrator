@@ -45,7 +45,10 @@ flowchart TD
     Accept -->|Changes needed| Inspect
     Accept -->|Accept| More{More delivery stages?}
     More -->|Yes| StagePlan
-    More -->|No| Done[Implementation ready for final human review and manual merge]
+    More -->|No| Git[Preview accepted stage files in Git connection]
+    Git --> Commit[Explicitly commit reviewed AI changes]
+    Commit --> Push[Explicitly push commit to connected branch]
+    Push --> Done[Final human review and manual merge]
 ```
 
 Frontend, backend, database, integration and general workers share one runner. Assignments
@@ -57,8 +60,8 @@ Every dispatch, retry and acceptance is explicit; refreshing never starts model 
 requests cancellation and preserves partial edits; resume clears the pause and waits for another
 dispatch. Feedback, reallocation and model changes that create a design revision require renewed
 approval. A completed run waits for user verification; it does not automatically advance the
-project. Stage acceptance records human evidence, while committing, merging, pushing and
-deploying remain manual.
+project. Stage acceptance records human evidence, while Git commit/push is available through explicit dashboard actions after stage acceptance.
+Merging and deployment remain manual.
 
 Try **New project → Try worker test project** in the dashboard and follow the
 [worker acceptance checklist](docs/worker-testing.md). See the
@@ -534,3 +537,44 @@ local fake Codex programs; real model behavior and native chat routing need your
 The CLI integration follows the [official structured-output Codex example](https://developers.openai.com/cookbook/examples/codex/build_iterative_repair_loops_with_codex).
 Per-file ownership is post-run detection within the existing project sandbox, not a permissions
 boundary. The runner leaves edits intact for review and never automatically rolls them back.
+
+## Connect Git and publish AI changes
+
+Open a project's **Dashboard → Git connection**. This panel is available before technical design
+is complete. If the project is not a Git repository, choose **Initialize Git repository**; the
+folder must be its own repository root. Create a repository on your Git hosting service, paste
+its HTTPS URL or `git@host:owner/repository.git`, then choose **Connect to Git**. Existing origin
+connections are reused; changing an existing origin is a terminal operation.
+
+Authentication uses your computer's Git credential helper or SSH setup. For GitHub, sign in with
+GitHub Desktop or run `gh auth login` in your terminal. Set your Git name/email there if needed.
+Do not put a token/password in the repository URL or project files. Connecting stores the remote
+locally; it does not create a hosted repository or validate network access. Push tests access.
+
+1. Complete and verify the stage's tasks, then accept stage verification with your test evidence.
+2. Select the stage in Git connection and choose **Preview accepted stage changes**.
+3. Inspect the diff and file list. Only changed owned files from that stage are eligible. To
+   narrow the list, select files and choose **Update preview for selected files**.
+4. Enter a commit message, confirm that you reviewed the files, and choose **Commit reviewed AI
+   changes**. A commit is local and does not push anything.
+5. Inspect the commit SHA, remote and branch; choose **Push committed AI changes**. Pushing
+   publishes the commit and its existing branch history. It uses a normal push, with no force,
+   pull, merge, branch switching or deployment. A rejected push needs terminal investigation.
+
+The application performs these Git operations on behalf of the AI workflow. Worker model
+processes continue to implement code without committing or pushing independently. Browser
+refresh never publishes. Git writes share the project writer lock with Codex execution. Existing
+staged changes block publication; resolve those in your terminal first. Only up to 64 selected
+small text files (24 KiB each) can be published through this initial UI. Private paths, unreadable
+files and recognizable credential content are excluded; these checks are not a full secret scan.
+
+Previews are checked again under the writer lock before commit. Source changes since worker
+execution require a rerun and verification. New design revisions, changed HEAD/branch/remote, or
+new edits to committed files prevent pushing an old receipt. Commit/push metadata is stored beside
+the design as `.publication.json` (under ignored plans/ by default). A failed push preserves the
+local commit for retry. A failed commit may leave selected files staged; inspect your Git index.
+
+Test with a disposable project and remote: connect it, verify/accept a stage, preview and commit,
+then push. Expect only selected files in the commit and the displayed SHA on the remote branch.
+Refresh before each action to confirm nothing publishes automatically. Fake-worker tests cover
+stage gates, stale previews, index isolation, push failure/retry, and dashboard refresh behavior.
