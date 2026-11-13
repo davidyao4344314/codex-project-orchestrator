@@ -1,0 +1,258 @@
+"""Explicit Git connection and publication of reviewed stage files."""
+
+import hashlib
+import json
+import os
+import re
+import subprocess
+from contextlib import contextmanager
+from pathlib import Path
+from tempfile import TemporaryFile
+from urllib.parse import urlsplit
+
+from codex_orchestrator.context_files import is_private_path, sensitive_text
+from codex_orchestrator.coordination_store import design_fingerprint, stage_accepted
+from codex_orchestrator.design import check_source
+from codex_orchestrator.design_models import DesignSession
+from codex_orchestrator.execution import project_lock
+from codex_orchestrator.run_store import latest_runs, run_directory
+from codex_orchestrator.session import SessionData
+from codex_orchestrator.worker_audit import _file_state, _status
+from codex_orchestrator.worker_runtime import check_worker_verification
+
+
+class GitPreview(SessionData):
+    stage_id: str
+    paths: list[str]
+    head: str | None
+    branch: str
+    remote: str
+    fingerprint: str
+    diff: str
+
+
+class GitPublication(SessionData):
+    design_fingerprint: str
+    paths: list[str]
+    stage_id: str
+    commit: str
+    branch: str
+    remote: str
+    pushed: bool = False
+
+
+def git(project: Path, *args: str, optional=False) -> str:
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_LITERAL_PATHSPECS="1")
+    env.setdefault("GIT_SSH_COMMAND", "ssh -oBatchMode=yes")
+    with TemporaryFile() as output, TemporaryFile() as errors:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(project), *args],
+                stdin=subprocess.DEVNULL,
+                stdout=output,
+                stderr=errors,
+                env=env,
+                timeout=60,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ValueError("Git timed out. Check the repository and your connection.") from exc
+        if result.returncode:
+            if optional:
+                return ""
+            # Git errors can echo a credential-bearing URL; keep them out of the UI.
+            raise ValueError(
+                "Git failed. Check repository permissions, Git identity and "
+                "authentication in your terminal. No force push was attempted."
+            )
+        if output.tell() > 1024 * 1024:
+            raise ValueError("Git output exceeds 1 MiB; narrow or clean the repository.")
+        output.seek(0)
+        return output.read().decode("utf-8", errors="replace").rstrip("\n")
+
+
+def repository(project: Path) -> bool:
+    root = git(project, "rev-parse", "--show-toplevel", optional=True)
+    return bool(root) and Path(root).resolve() == project.resolve()
+
+
+@contextmanager
+def writer(project: Path):
+    lock = project_lock(project)
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError as exc:
+        raise ValueError("Wait for the active project operation to finish.") from exc
+    try:
+        with os.fdopen(fd, "w") as stream:
+            stream.write(f"Git operation PID {os.getpid()}\n")
+        yield
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+def initialize(project: Path):
+    with writer(project):
+        if git(project, "rev-parse", "--show-toplevel", optional=True):
+            raise ValueError("This folder already belongs to a repository; select its root.")
+        git(project, "init", "-b", "main")
+
+
+def validate_remote(url: str) -> str:
+    url = url.strip()
+    parsed = urlsplit(url)
+    https = (
+        parsed.scheme == "https" and parsed.hostname and not parsed.username and not parsed.password
+    )
+    ssh = bool(re.fullmatch(r"git@[A-Za-z0-9.-]+:[A-Za-z0-9_./-]+", url))
+    if not (https or ssh) or parsed.query or parsed.fragment or any(c.isspace() for c in url):
+        raise ValueError("Use an HTTPS URL without credentials or git@host:owner/repository.git.")
+    return url
+
+
+def connect(project: Path, url: str):
+    url = validate_remote(url)
+    with writer(project):
+        if not repository(project):
+            raise ValueError("Initialize a repository at this project's root first.")
+        current = git(project, "remote", "get-url", "origin", optional=True)
+        if current and current != url:
+            raise ValueError("Origin is already connected. Change it explicitly in your terminal.")
+        if not current:
+            git(project, "remote", "add", "origin", url)
+
+
+def _approved(path: Path, stage_id: str):
+    state = DesignSession.load(path)
+    check_source(state)
+    if state.phase != "approved" or not stage_accepted(state, path, stage_id):
+        raise ValueError("Accept this delivery stage's verification before committing its work.")
+    project = Path(state.project).resolve()
+    if not repository(project):
+        raise ValueError("Select a project whose folder is the Git repository root.")
+    tasks = [t for t in state.revisions[-1].design.tasks if t.stage_id == stage_id]
+    latest = latest_runs(path, len(state.revisions))
+    for task in tasks:
+        run = latest[task.id]
+        if run.worker_contract_version != 1:
+            raise ValueError(
+                "Rerun legacy tasks with structured worker evidence before publishing."
+            )
+        check_worker_verification(run, project, run_directory(path) / run.id)
+    return state, project, {p for t in tasks for p in t.owned_paths}
+
+
+def _preview(path: Path, stage_id: str, selected: list[str] | None = None) -> GitPreview:
+    state, project, owned = _approved(path, stage_id)
+    if git(project, "diff", "--cached", "--name-only"):
+        raise ValueError(
+            "The Git index contains staged changes. Resolve them in your terminal first."
+        )
+    branch = git(project, "symbolic-ref", "--quiet", "--short", "HEAD", optional=True)
+    if not branch:
+        raise ValueError("Check out a branch before publishing.")
+    remote = validate_remote(
+        git(project, "remote", "get-url", "--push", "--all", "origin", optional=True)
+    )
+    candidates = sorted(_status(project) & owned)
+    paths = candidates if selected is None else sorted(set(selected))
+    if not paths or len(paths) > 64 or not set(paths) <= set(candidates):
+        raise ValueError("Select changed files owned by this accepted stage.")
+    observed = {}
+    for name in paths:
+        file = project / name
+        if Path(name).is_absolute() or ".." in Path(name).parts or is_private_path(file):
+            raise ValueError("Private or outside-project paths cannot be published here.")
+        item = _file_state(project, name, True, 4 * 1024 * 1024)
+        if item.marker or (item.exists and item.text is None):
+            raise ValueError(
+                f"Cannot review {name}: use small text files without recognizable credentials."
+            )
+        observed[name] = item.model_dump()
+    head = git(project, "rev-parse", "--verify", "HEAD", optional=True) or None
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            [design_fingerprint(state), head, branch, remote, observed], sort_keys=True
+        ).encode()
+    ).hexdigest()
+    diff = git(project, "diff", "--no-ext-diff", "--no-textconv", "--", *paths)
+    for name, item in observed.items():
+        if item["exists"] and not git(project, "ls-files", "--", name):
+            diff += f"\nNew file: {name}\n" + item["text"]
+    if sensitive_text(diff):
+        raise ValueError("Recognizable credentials found in the diff; review in your terminal.")
+    return GitPreview(
+        stage_id=stage_id,
+        paths=paths,
+        head=head,
+        branch=branch,
+        remote=remote,
+        fingerprint=fingerprint,
+        diff=diff[:48000],
+    )
+
+
+def preview(path: Path, stage_id: str, selected: list[str] | None = None) -> GitPreview:
+    project = Path(DesignSession.load(path).project).resolve()
+    if project_lock(project).exists():
+        raise ValueError("Wait for the active project operation to finish.")
+    return _preview(path, stage_id, selected)
+
+
+def publication_path(path: Path) -> Path:
+    return path.with_suffix(".publication.json")
+
+
+def commit(path: Path, reviewed: GitPreview, message: str) -> GitPublication:
+    if not message.strip() or len(message) > 500 or sensitive_text(message):
+        raise ValueError("Enter a commit message of 1–500 characters without credentials.")
+    project = Path(DesignSession.load(path).project).resolve()
+    with writer(project):
+        current = _preview(path, reviewed.stage_id, reviewed.paths)
+        if current.fingerprint != reviewed.fingerprint:
+            raise ValueError("Files or Git settings changed. Build a new preview.")
+        git(project, "add", "--", *reviewed.paths)
+        git(project, "commit", "-m", message.strip(), "--only", "--", *reviewed.paths)
+        record = GitPublication(
+            design_fingerprint=design_fingerprint(DesignSession.load(path)),
+            paths=reviewed.paths,
+            stage_id=reviewed.stage_id,
+            commit=git(project, "rev-parse", "HEAD"),
+            branch=reviewed.branch,
+            remote=reviewed.remote,
+        )
+        record.save(publication_path(path))
+        return record
+
+
+def push(path: Path) -> GitPublication:
+    project = Path(DesignSession.load(path).project).resolve()
+    with writer(project):
+        record = GitPublication.load(publication_path(path))
+        state, _, _ = _approved(path, record.stage_id)
+        if design_fingerprint(state) != record.design_fingerprint:
+            raise ValueError("The design changed. Commit the newly accepted work before pushing.")
+        if _status(project) & set(record.paths):
+            raise ValueError(
+                "Committed files have new edits. Review and commit them before pushing."
+            )
+        if (
+            git(project, "rev-parse", "HEAD") != record.commit
+            or git(project, "symbolic-ref", "--short", "HEAD") != record.branch
+            or git(project, "remote", "get-url", "--push", "--all", "origin") != record.remote
+        ):
+            raise ValueError(
+                "HEAD, branch or origin changed. Review the repository in your terminal."
+            )
+        git(
+            project,
+            "-c",
+            "push.followTags=false",
+            "push",
+            "--",
+            record.remote,
+            f"{record.commit}:refs/heads/{record.branch}",
+        )
+        record.pushed = True
+        record.save(publication_path(path))
+        return record

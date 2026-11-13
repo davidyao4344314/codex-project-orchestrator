@@ -14,6 +14,7 @@ from codex_orchestrator.coordinator_view import coordinator_panel
 from codex_orchestrator.design import check_source
 from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.execution import is_busy, runs
+from codex_orchestrator.git_view import git_panel
 from codex_orchestrator.reassignment import reassign
 from codex_orchestrator.run_view import run_panel
 from codex_orchestrator.session import SessionData
@@ -146,6 +147,8 @@ def show_dashboard(source_name):
 def dashboard(session, source_path, action, *, workspace_only=False):
     default = source_path.with_name(f"{source_path.stem}.design.json")
     path = Path(st.session_state.get(f"design_path_{source_path.name}", str(default)))
+    if not workspace_only:
+        git_panel(Path(session.project), path, action)
     if not path.exists():
         st.info("Complete requirements and create a technical design to populate the workspace.")
         for column, label in zip(st.columns(3), AREAS.values(), strict=True):
