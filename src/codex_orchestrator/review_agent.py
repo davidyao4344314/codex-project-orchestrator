@@ -1,4 +1,4 @@
-"""Independent read-only review followed by opt-in, approval-gated publication."""
+"""Mandatory independent read-only review, without committing or pushing."""
 
 import hashlib
 import json
@@ -17,14 +17,16 @@ MAX_REVIEW_BYTES = 256 * 1024
 
 
 def save_policy(path: Path, enabled: bool, model: str | None) -> None:
+    if enabled:
+        raise ValueError(
+            "Automatic pushing is disabled. User permission is required after AI review."
+        )
     project = Path(DesignSession.load(path).project).resolve()
     with git.writer(project):
         branch = git.git(project, "symbolic-ref", "--short", "HEAD")
         remote = git.validate_remote(
             git.git(project, "remote", "get-url", "--push", "--all", "origin")
         )
-        if enabled and not branch.startswith("orchestrator/"):
-            raise ValueError("Create or switch to an orchestrator/ development branch first.")
         store.PublicationPolicy(
             allow_reviewer_push=enabled, reviewer_model=model, branch=branch, remote=remote
         ).save(store.policy_path(path))
@@ -93,11 +95,13 @@ def review_payload(path: Path, reviewed: git.GitPreview) -> str:
 def run_review(
     path: Path, reviewed: git.GitPreview, *, publish=False, message="Implement reviewed stage"
 ) -> store.ReviewRecord:
+    if publish:
+        raise ValueError(
+            "Automatic pushing is disabled. Review first, then request user permission."
+        )
     project = Path(DesignSession.load(path).project).resolve()
     with git.writer(project):
         policy = store.load_policy(path)
-        if publish:
-            git.check_reviewer_policy(path, reviewed.branch, reviewed.remote)
         current = git._preview(path, reviewed.stage_id, reviewed.paths)
         if current.fingerprint != reviewed.fingerprint:
             raise ValueError("Files or evidence changed. Build a new preview.")
@@ -156,7 +160,4 @@ def run_review(
                 result=result,
             ),
         )
-        if publish and result.decision == "approved":
-            git._commit(path, reviewed, message, record.id)
-            git._push(path)
         return record

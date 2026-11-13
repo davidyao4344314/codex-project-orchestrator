@@ -1,4 +1,4 @@
-"""Persisted independent decisions and opt-in publication policy."""
+"""Persisted independent decisions and reviewer model preferences."""
 
 import time
 from pathlib import Path
@@ -56,6 +56,7 @@ class ReviewLog(SessionData):
 
 
 class PublicationPolicy(SessionData):
+    # Legacy fields remain readable; automatic publishing is no longer honored.
     allow_reviewer_push: bool = False
     reviewer_model: str | None = None
     branch: str = ""
@@ -103,3 +104,19 @@ def require_approval(path: Path, approval_id: str | None, fingerprint: str) -> R
 def input_path(path: Path, input_id: str) -> Path:
     UUID(input_id)
     return path.parent / (path.stem + ".review-inputs") / (input_id + ".json")
+
+
+def require_reviewer(path: Path, stage_id: str, fingerprint: str) -> ReviewRecord:
+    record = next(
+        (
+            r
+            for r in reversed(load_reviews(path).records)
+            if r.stage_id == stage_id and r.source == "reviewer"
+        ),
+        None,
+    )
+    if record is None:
+        raise ValueError("Run the independent AI review before committing or pushing.")
+    if record.fingerprint != fingerprint or record.result.decision != "approved":
+        raise ValueError("Current changes need approval from the independent AI reviewer.")
+    return require_approval(path, record.id, fingerprint)

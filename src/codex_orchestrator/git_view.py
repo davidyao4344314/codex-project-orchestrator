@@ -5,8 +5,10 @@ from pathlib import Path
 import streamlit as st
 
 from codex_orchestrator import git_service as service
+from codex_orchestrator import review_store
 from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.review_view import review_controls, review_settings
+from codex_orchestrator.worker_models import artifact_digest
 
 
 def git_panel(project: Path, design_path: Path, action):
@@ -69,8 +71,15 @@ def git_panel(project: Path, design_path: Path, action):
                         st.rerun()
                     except (OSError, ValueError) as exc:
                         st.warning(str(exc))
+                try:
+                    review_store.require_reviewer(design_path, stage, reviewed.fingerprint)
+                    ai_approved = True
+                except ValueError:
+                    ai_approved = False
+                    st.info("Run independent AI review and resolve its findings before committing.")
                 if st.button(
-                    "Commit reviewed AI changes", disabled=not confirmed or not same_selection
+                    "Commit reviewed AI changes",
+                    disabled=not confirmed or not same_selection or not ai_approved,
                 ):
 
                     def save_commit():
@@ -88,10 +97,33 @@ def git_panel(project: Path, design_path: Path, action):
                 if record.pushed:
                     st.success("Push completed.")
                 else:
+                    try:
+                        reviewer = review_store.require_reviewer(
+                            design_path, record.stage_id, record.reviewed_fingerprint or ""
+                        )
+                    except ValueError as exc:
+                        st.warning(str(exc))
+                        return
+                    with st.expander("AI review for this commit"):
+                        st.write(reviewer.result.summary)
+                        for finding in reviewer.result.findings:
+                            st.write(f"{finding.location}: {finding.detail}")
                     st.info(
-                        "Push publishes this commit and its branch history. No force push or merge."
+                        "The AI review approved these changes. Do you give permission to push "
+                        "the commit shown above? This also publishes its branch history."
                     )
-                    if st.button("Push committed AI changes"):
-                        action("Pushing commit…", lambda: service.push(design_path))
+                    permission = service.PushPermission(
+                        commit=record.commit, branch=record.branch, remote=record.remote
+                    )
+                    # Scope the checkbox to the displayed destination, not a global preference.
+                    allowed = st.checkbox(
+                        "I give permission to push this commit to the destination shown above",
+                        key="push_permission_" + artifact_digest(permission),
+                    )
+                    if st.button("Approve and push this commit", disabled=not allowed):
+                        action(
+                            "Pushing your approved commit…",
+                            lambda: service.push(design_path, permission=permission),
+                        )
         except (OSError, ValueError) as exc:
             st.warning(str(exc))

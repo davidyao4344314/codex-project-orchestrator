@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from test_worker_execution import launch
 
-from codex_orchestrator import coordinator, execution
+from codex_orchestrator import coordinator, execution, review_agent, review_store
 from codex_orchestrator import git_service as service
 
 
@@ -18,6 +18,13 @@ def accepted(approved_session, technical_payload, monkeypatch):
     service.connect(project, "https://example.invalid/user/test.git")
     execution.verify_run(path, run.id)
     coordinator.accept_stage(path, "core", "Reviewed and tested")
+    monkeypatch.setattr(
+        review_agent,
+        "codex_response",
+        lambda *a, **kw: review_store.ReviewDecision(
+            decision="approved", summary="AI reviewed", findings=[], additional_human_checks=[]
+        ),
+    )
     return project, path
 
 
@@ -51,8 +58,14 @@ def test_initialize_connect_and_writer_lock(tmp_path):
 
 
 def human_commit(path, reviewed, message):
+    review_agent.run_review(path, reviewed)
     approval = service.approve_user(path, reviewed)
     return service.commit(path, reviewed, message, approval_id=approval.id)
+
+
+def consent(path):
+    record = service.GitPublication.load(service.publication_path(path))
+    return service.PushPermission(commit=record.commit, branch=record.branch, remote=record.remote)
 
 
 def test_commit_only_reviewed_stage_files_and_push_exact_commit(accepted, monkeypatch):
@@ -72,7 +85,7 @@ def test_commit_only_reviewed_stage_files_and_push_exact_commit(accepted, monkey
         return actual_git(project, *args, **kwargs)
 
     monkeypatch.setattr(service, "git", fake_push)
-    assert service.push(path).pushed
+    assert service.push(path, permission=consent(path)).pushed
     assert pushes == [
         (
             "-c",
@@ -123,7 +136,7 @@ def test_push_failure_keeps_commit_for_retry(accepted, monkeypatch):
 
     monkeypatch.setattr(service, "git", fail_push)
     with pytest.raises(ValueError, match="Authentication"):
-        service.push(path)
+        service.push(path, permission=consent(path))
     saved = service.GitPublication.load(service.publication_path(path))
     assert not saved.pushed and saved.commit == record.commit
 
@@ -165,4 +178,4 @@ def test_new_commit_after_receipt_cannot_be_pushed_as_reviewed(accepted):
     human_commit(path, service.preview(path, "core"), "Implement counter")
     service.git(project, "commit", "--allow-empty", "-m", "Later commit")
     with pytest.raises(ValueError, match="HEAD, branch or origin changed"):
-        service.push(path)
+        service.push(path, permission=consent(path))

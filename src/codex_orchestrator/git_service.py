@@ -33,6 +33,12 @@ class GitPreview(SessionData):
     diff: str
 
 
+class PushPermission(SessionData):
+    commit: str
+    branch: str
+    remote: str
+
+
 class GitPublication(SessionData):
     design_fingerprint: str
     paths: list[str]
@@ -45,6 +51,8 @@ class GitPublication(SessionData):
     approval_digest: str | None = None
     reviewed_fingerprint: str | None = None
     evidence_digest: str | None = None
+    reviewer_id: str | None = None
+    reviewer_digest: str | None = None
 
 
 def git(project: Path, *args: str, optional=False) -> str:
@@ -243,6 +251,7 @@ def approve_user(path: Path, reviewed: GitPreview) -> reviews.ReviewRecord:
         current = _preview(path, reviewed.stage_id, reviewed.paths)
         if current.fingerprint != reviewed.fingerprint:
             raise ValueError("Files or Git settings changed. Build a new preview.")
+        reviews.require_reviewer(path, reviewed.stage_id, reviewed.fingerprint)
         return reviews.save_review(
             path,
             reviews.ReviewRecord(
@@ -256,18 +265,6 @@ def approve_user(path: Path, reviewed: GitPreview) -> reviews.ReviewRecord:
                     additional_human_checks=[],
                 ),
             ),
-        )
-
-
-def check_reviewer_policy(path: Path, branch: str, remote: str) -> None:
-    policy = reviews.load_policy(path)
-    if (
-        not policy.allow_reviewer_push
-        or not branch.startswith("orchestrator/")
-        or (policy.branch, policy.remote) != (branch, remote)
-    ):
-        raise ValueError(
-            "Enable reviewer publishing for this orchestrator/ development branch and remote."
         )
 
 
@@ -289,8 +286,7 @@ def _commit(
     if current.fingerprint != reviewed.fingerprint:
         raise ValueError("Files or Git settings changed. Build a new preview.")
     approval = reviews.require_approval(path, approval_id, reviewed.fingerprint)
-    if approval.source == "reviewer":
-        check_reviewer_policy(path, reviewed.branch, reviewed.remote)
+    reviewer = reviews.require_reviewer(path, reviewed.stage_id, reviewed.fingerprint)
     git(project, "add", "--", *reviewed.paths)
     expected_tree = git(project, "write-tree")
     git(project, "commit", "-m", message.strip(), "--only", "--", *reviewed.paths)
@@ -300,6 +296,8 @@ def _commit(
         )
     record = GitPublication(
         evidence_digest=evidence_digest(DesignSession.load(path), path, reviewed.stage_id),
+        reviewer_id=reviewer.id,
+        reviewer_digest=artifact_digest(reviewer),
         approval_id=approval.id,
         approval_digest=artifact_digest(approval),
         reviewed_fingerprint=reviewed.fingerprint,
@@ -314,20 +312,29 @@ def _commit(
     return record
 
 
-def push(path: Path) -> GitPublication:
+def push(path: Path, *, permission: PushPermission | None = None) -> GitPublication:
     project = Path(DesignSession.load(path).project).resolve()
     with writer(project):
-        return _push(path)
+        return _push(path, permission)
 
 
-def _push(path: Path) -> GitPublication:
+def _push(path: Path, permission: PushPermission | None = None) -> GitPublication:
     project = Path(DesignSession.load(path).project).resolve()
     record = GitPublication.load(publication_path(path))
+    if permission is None or (permission.commit, permission.branch, permission.remote) != (
+        record.commit,
+        record.branch,
+        record.remote,
+    ):
+        raise ValueError(
+            "User permission is required for this exact commit, branch and remote before push."
+        )
+    reviewer = reviews.require_reviewer(path, record.stage_id, record.reviewed_fingerprint or "")
+    if reviewer.id != record.reviewer_id or artifact_digest(reviewer) != record.reviewer_digest:
+        raise ValueError("The AI review changed or is missing. Review again before pushing.")
     approval = reviews.require_approval(path, record.approval_id, record.reviewed_fingerprint or "")
     if artifact_digest(approval) != record.approval_digest:
         raise ValueError("The approval record changed. Review again before publishing.")
-    if approval.source == "reviewer":
-        check_reviewer_policy(path, record.branch, record.remote)
     state, _, _ = _approved(path, record.stage_id)
     if evidence_digest(state, path, record.stage_id) != record.evidence_digest:
         raise ValueError("Task attempts or test evidence changed. Review again before pushing.")

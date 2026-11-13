@@ -1,4 +1,4 @@
-"""Explicit review actions and optional reviewer-approved publication controls."""
+"""Explicit mandatory AI review and reviewer settings controls."""
 
 import streamlit as st
 
@@ -9,9 +9,8 @@ def review_settings(project, path, action):
     policy = review_store.load_policy(path)
     with st.expander("Review and publishing settings"):
         st.caption(
-            "Human approval is the default. Reviewer-approved publishing is restricted to an "
-            "orchestrator/ branch and the saved remote. Stage tests still need human acceptance. "
-            "Push includes existing branch history. No automatic merge or force push."
+            "AI review is required. After approval and a local commit, you must give explicit "
+            "permission before each push. Saved automatic-push settings are ignored."
         )
         with st.form(f"review_branch_{path}"):
             branch = st.text_input("New development branch", value="orchestrator/stage-work")
@@ -22,18 +21,13 @@ def review_settings(project, path, action):
                 )
         with st.form(f"review_policy_{path}"):
             model = st.text_input("Reviewer model", value=policy.reviewer_model or "default")
-            enabled = st.checkbox(
-                "Allow reviewer-approved commit and push", value=policy.allow_reviewer_push
-            )
             if st.form_submit_button("Save review settings"):
                 action(
                     "Saving review policy…",
                     lambda: review_agent.save_policy(
-                        path, enabled, None if model.strip() in {"", "default"} else model.strip()
+                        path, False, None if model.strip() in {"", "default"} else model.strip()
                     ),
                 )
-        if policy.allow_reviewer_push:
-            st.caption(f"Enabled destination · {policy.remote} · {policy.branch}")
 
 
 def review_controls(path, reviewed, message, action, *, disabled=False):
@@ -44,13 +38,6 @@ def review_controls(path, reviewed, message, action, *, disabled=False):
     )
     if st.button("Run independent review", disabled=disabled):
         action("Reviewing selected changes…", lambda: review_agent.run_review(path, reviewed))
-    policy = review_store.load_policy(path)
-    if policy.allow_reviewer_push:
-        if st.button("Review and publish if approved", disabled=disabled):
-            action(
-                "Reviewing and publishing only if approved…",
-                lambda: review_agent.run_review(path, reviewed, publish=True, message=message),
-            )
     records = [
         r for r in review_store.load_reviews(path).records if r.stage_id == reviewed.stage_id
     ]
