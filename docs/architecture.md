@@ -116,8 +116,8 @@ acceptance persist, but crash supervision of subprocesses remains the runner's e
 The coordinator stops at verification waits rather than treating turn completion as success.
 Task verification is user-attested; stage acceptance records combined-change review and human
 checks. The runner also checks prerequisite stage acceptance, preventing a separate Start
-implementation button from bypassing that boundary. No merging or independent AI reviewer is
-implemented in this increment. Dispatch, retry, and resume are explicit; polling never starts
+implementation button from bypassing that boundary. The coordinator does not merge. Independent review is an explicit publication action in the
+review services, rather than a side effect of dispatch or polling. Dispatch, retry, and resume are explicit; polling never starts
 inference. Existing file checkpoints still target one local user, not concurrent server writers.
 
 ## Context builder boundary
@@ -180,8 +180,8 @@ sandbox; they do not implement a complete filesystem race or isolation boundary.
 A valid JSON report or zero exit code does not establish semantic correctness or test adequacy.
 The user gate remains. Ownership is detected post-run, not isolated per file; audits are bounded
 and cannot exhaustively capture ignored/reverted/outside-project writes. Read-only workers use
-the CLI read-only sandbox. This worker layer does not add an independent reviewer, parallel
-execution, automatic merges, or destructive rollback. See worker-testing.md for acceptance and
+the CLI read-only sandbox. The worker harness does not itself review or publish; the separate review/publication services
+provide that gate. It does not add parallel execution, automatic merges or destructive rollback. See worker-testing.md for acceptance and
 recovery checks, artifact names, exact audit limits and the all-profile sample.
 
 See quality-review.md for the worker review findings, regression coverage, and maintenance priorities.
@@ -202,3 +202,31 @@ have bounded captured output and a timeout; errors omit raw output that might ex
 credentials. The service does not create hosted repositories, force push, merge, or grant workers
 independent Git access. Local JSON checkpoints remain single-user storage, not a durable Git job
 queue. External editors and Git hooks can still modify files independently of the application lock.
+
+
+## Independent review and publishing gate
+
+`review_store` defines structured decisions, immutable history entries, input snapshots and an
+opt-in destination policy. `review_agent` builds a bounded review package using assignment_context,
+then calls the existing read-only Codex adapter in a separate ephemeral turn. `review_view` exposes
+explicit review/settings actions. Required stage tests and human acceptance remain prerequisites.
+
+Git previews bind exact diffs, selected contents, design and latest attempt/evidence fingerprints.
+User approval is a recorded action; reviewer approval is saved only from a separately validated
+response. A pending blocked record supersedes an old reviewer decision before inference, so a
+failed/timed-out attempt cannot leave that older decision usable. Inputs are rechecked after the
+call. Review inputs/results remain local artifacts; polling never invokes the reviewer.
+
+The Git service requires a current approval ID to commit and binds its digest plus attempt/evidence
+digest into the publication receipt. It rechecks those before pushing and compares the committed
+tree with the reviewed staged tree to detect hook edits. Reviewer publication additionally needs
+an explicit policy bound to the current orchestrator/ branch and remote; human approval is the
+default. Disabling the policy blocks reviewer-based retries. The explicit review-and-publish action
+holds the shared writer lock through review, commit and push; no automatic task dispatch or merge
+is introduced. The worker subprocess retains its prohibition on Git publication.
+
+Records use additive defaults. Old receipts without approval are readable but cannot gain invented
+approval. Review packages are limited to 256 KiB; evidence reads to 2 MiB. Hashes/checkpoints enforce
+application consistency, not isolation from a malicious actor who can rewrite the application or
+its local state. Durable background supervision and transactional multi-user storage remain future
+work, as do quantitative evaluation of reviewer quality and token/cost benefits.

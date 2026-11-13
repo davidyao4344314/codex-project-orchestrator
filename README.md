@@ -46,8 +46,11 @@ flowchart TD
     Accept -->|Accept| More{More delivery stages?}
     More -->|Yes| StagePlan
     More -->|No| Git[Preview accepted stage files in Git connection]
-    Git --> Commit[Explicitly commit reviewed AI changes]
-    Commit --> Push[Explicitly push commit to connected branch]
+    Git --> Approval{User or independent reviewer approves exact changes?}
+    Approval -->|User approval| Commit[Commit reviewed changes]
+    Approval -->|Reviewer approval and opt-in policy| Commit
+    Approval -->|Changes requested or blocked| Inspect
+    Commit --> Push[Publish approved commit to connected branch]
     Push --> Done[Final human review and manual merge]
 ```
 
@@ -473,8 +476,7 @@ even through the individual-task runner. Acceptance is tied to the latest verifi
 and the design revision, so a new attempt invalidates the previous acceptance. Checkpoints
 live beside the design under ignored plans storage and survive browser/server restarts.
 
-This is the first coordinator increment, not the complete Stage 3 pipeline. Independent AI
-review, automatic test-evidence evaluation, verified commits/merges, durable crash recovery,
+This is the first coordinator increment, not the complete Stage 3 pipeline. Automatic test-evidence grading, verified merges, durable crash recovery,
 and parallel worktrees remain later increments. Human acceptance is not proof of a merge.
 
 ## Stage 3: context builder
@@ -578,3 +580,52 @@ Test with a disposable project and remote: connect it, verify/accept a stage, pr
 then push. Expect only selected files in the commit and the displayed SHA on the remote branch.
 Refresh before each action to confirm nothing publishes automatically. Fake-worker tests cover
 stage gates, stale previews, index isolation, push failure/retry, and dashboard refresh behavior.
+
+## Independent reviewer and approval-gated publishing
+
+The Git panel now offers **Run independent review** after building an accepted-stage preview.
+The reviewer uses a separate, ephemeral, read-only Codex turn. It receives selected source and
+full diffs, approved requirements, stage gates, task context, worker reports and matching command
+results. It evaluates correctness, scope and test adequacy without implementing fixes or claiming
+it executed tests. Decisions are **approved**, **changes_requested**, or **blocked**. Blocking
+findings or additional outstanding human checks cannot be approved.
+
+**Human approval remains the default.** The existing commit confirmation now saves a user approval
+record. Both commit and push enforce approval in Python services, rather than relying on button
+visibility. A user may explicitly approve after reviewing a model's concerns; required passing
+worker checks and human stage acceptance still apply in either mode. An implementation worker
+cannot submit a reviewer decision through the worker-result contract.
+
+For reviewer-approved publishing:
+
+1. In **Git connection → Review and publishing settings**, create a development branch such as
+   `orchestrator/stage-work`, or switch to an existing `orchestrator/` branch in your terminal.
+2. Set the reviewer model (`default` uses your Codex configuration). Enable **Allow
+   reviewer-approved commit and push**, then **Save review settings**. This authorizes only
+   the current branch and push remote. It cannot enable automatic publishing to main/master.
+3. Build a fresh preview and select the files to review. **Run independent review** saves a
+   decision only. **Review and publish if approved** starts the review and, on approval, lets
+   the coordinator commit and push without another confirmation. Nothing happens on refresh
+   or merely because a worker finishes.
+4. Read findings and use **Load reviewer input** to inspect the saved context. If changes are
+   requested, fix them through the worker, rerun checks and accept the stage again before
+   reviewing a fresh preview. Newly requested human checks require your review; the reviewer
+   cannot tick them off for you.
+
+Approvals bind selected file contents/diffs, design, task attempt IDs, test evidence, base HEAD,
+branch and remote. Changed inputs require fresh approval. Starting a new review supersedes an
+older reviewer approval even if the new call errors or times out. A user approval is recorded
+separately. Publication receipts bind approval and evidence hashes to the commit; changed evidence,
+new task attempts, modified approval records or disabled reviewer publishing block push retries.
+Git hooks that change the staged commit tree also block publication of that commit.
+
+Review input is limited to 256 KiB and is never silently truncated to fit. Narrow the selected
+files if necessary. Reviews and policy are saved beside the design as `.reviews.json` and
+`.review-policy.json`, with bounded input snapshots under `.review-inputs/`; default plans/ storage
+is ignored by Git. Previous publication receipts without approval records remain readable but
+cannot be pushed through the new gate; inspect those commits in your terminal.
+
+This is an independent model assessment, not a guarantee of correctness. Existing manual stage
+tests, ordinary Git authentication, sequential writer locking and manual merge/deployment remain.
+The application lock cannot control external editors, native follow-ups or user-configured hooks.
+See [reviewer acceptance tests](docs/reviewer-testing.md).
