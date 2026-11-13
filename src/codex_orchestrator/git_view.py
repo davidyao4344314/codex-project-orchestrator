@@ -6,6 +6,7 @@ import streamlit as st
 
 from codex_orchestrator import git_service as service
 from codex_orchestrator.design_models import DesignSession
+from codex_orchestrator.review_view import review_controls, review_settings
 
 
 def git_panel(project: Path, design_path: Path, action):
@@ -40,6 +41,7 @@ def git_panel(project: Path, design_path: Path, action):
             state = DesignSession.load(design_path)
             if not state.revisions:
                 return
+            review_settings(project, design_path, action)
             stages = {s.id: s.title for s in state.revisions[-1].design.stages}
             stage = st.selectbox("Stage to publish", list(stages), format_func=stages.get)
             key = f"git_preview_{design_path}"
@@ -72,10 +74,12 @@ def git_panel(project: Path, design_path: Path, action):
                 ):
 
                     def save_commit():
-                        service.commit(design_path, reviewed, message)
+                        approval = service.approve_user(design_path, reviewed)
+                        service.commit(design_path, reviewed, message, approval_id=approval.id)
                         st.session_state.pop(key, None)
 
                     action("Committing reviewed changes…", save_commit)
+                review_controls(design_path, reviewed, message, action, disabled=not same_selection)
             receipt = service.publication_path(design_path)
             if receipt.exists():
                 record = service.GitPublication.load(receipt)

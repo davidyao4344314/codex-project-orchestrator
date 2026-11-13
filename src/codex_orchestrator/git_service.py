@@ -10,6 +10,7 @@ from pathlib import Path
 from tempfile import TemporaryFile
 from urllib.parse import urlsplit
 
+from codex_orchestrator import review_store as reviews
 from codex_orchestrator.context_files import is_private_path, sensitive_text
 from codex_orchestrator.coordination_store import design_fingerprint, stage_accepted
 from codex_orchestrator.design import check_source
@@ -18,6 +19,7 @@ from codex_orchestrator.execution import project_lock
 from codex_orchestrator.run_store import latest_runs, run_directory
 from codex_orchestrator.session import SessionData
 from codex_orchestrator.worker_audit import _file_state, _status
+from codex_orchestrator.worker_models import WorkerEvidence, artifact_digest
 from codex_orchestrator.worker_runtime import check_worker_verification
 
 
@@ -39,6 +41,10 @@ class GitPublication(SessionData):
     branch: str
     remote: str
     pushed: bool = False
+    approval_id: str | None = None
+    approval_digest: str | None = None
+    reviewed_fingerprint: str | None = None
+    evidence_digest: str | None = None
 
 
 def git(project: Path, *args: str, optional=False) -> str:
@@ -142,6 +148,32 @@ def _approved(path: Path, stage_id: str):
     return state, project, {p for t in tasks for p in t.owned_paths}
 
 
+def review_evidence(folder: Path) -> WorkerEvidence:
+    with (folder / "worker_evidence.json").open("rb") as stream:
+        raw = stream.read(2 * 1024 * 1024 + 1)
+    if len(raw) > 2 * 1024 * 1024:
+        raise ValueError("Worker evidence exceeds the review budget.")
+    result = WorkerEvidence.model_validate_json(raw)
+    if result.violations:
+        raise ValueError("Resolve worker evidence violations before publication.")
+    return result
+
+
+def evidence_digest(state: DesignSession, path: Path, stage_id: str) -> str:
+    latest = latest_runs(path, len(state.revisions))
+    attempts = [
+        (
+            t.id,
+            latest[t.id].id,
+            latest[t.id].worker_result_digest,
+            artifact_digest(review_evidence(run_directory(path) / latest[t.id].id)),
+        )
+        for t in state.revisions[-1].design.tasks
+        if t.stage_id == stage_id
+    ]
+    return hashlib.sha256(json.dumps(attempts).encode()).hexdigest()
+
+
 def _preview(path: Path, stage_id: str, selected: list[str] | None = None) -> GitPreview:
     state, project, owned = _approved(path, stage_id)
     if git(project, "diff", "--cached", "--name-only"):
@@ -170,17 +202,19 @@ def _preview(path: Path, stage_id: str, selected: list[str] | None = None) -> Gi
             )
         observed[name] = item.model_dump()
     head = git(project, "rev-parse", "--verify", "HEAD", optional=True) or None
-    fingerprint = hashlib.sha256(
-        json.dumps(
-            [design_fingerprint(state), head, branch, remote, observed], sort_keys=True
-        ).encode()
-    ).hexdigest()
     diff = git(project, "diff", "--no-ext-diff", "--no-textconv", "--", *paths)
     for name, item in observed.items():
         if item["exists"] and not git(project, "ls-files", "--", name):
             diff += f"\nNew file: {name}\n" + item["text"]
     if sensitive_text(diff):
         raise ValueError("Recognizable credentials found in the diff; review in your terminal.")
+    attempts = evidence_digest(state, path, stage_id)
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            [design_fingerprint(state), head, branch, remote, observed, diff, attempts],
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
     return GitPreview(
         stage_id=stage_id,
         paths=paths,
@@ -203,56 +237,119 @@ def publication_path(path: Path) -> Path:
     return path.with_suffix(".publication.json")
 
 
-def commit(path: Path, reviewed: GitPreview, message: str) -> GitPublication:
-    if not message.strip() or len(message) > 500 or sensitive_text(message):
-        raise ValueError("Enter a commit message of 1–500 characters without credentials.")
+def approve_user(path: Path, reviewed: GitPreview) -> reviews.ReviewRecord:
     project = Path(DesignSession.load(path).project).resolve()
     with writer(project):
         current = _preview(path, reviewed.stage_id, reviewed.paths)
         if current.fingerprint != reviewed.fingerprint:
             raise ValueError("Files or Git settings changed. Build a new preview.")
-        git(project, "add", "--", *reviewed.paths)
-        git(project, "commit", "-m", message.strip(), "--only", "--", *reviewed.paths)
-        record = GitPublication(
-            design_fingerprint=design_fingerprint(DesignSession.load(path)),
-            paths=reviewed.paths,
-            stage_id=reviewed.stage_id,
-            commit=git(project, "rev-parse", "HEAD"),
-            branch=reviewed.branch,
-            remote=reviewed.remote,
+        return reviews.save_review(
+            path,
+            reviews.ReviewRecord(
+                stage_id=reviewed.stage_id,
+                fingerprint=reviewed.fingerprint,
+                source="user",
+                result=reviews.ReviewDecision(
+                    decision="approved",
+                    summary="User reviewed selected changes",
+                    findings=[],
+                    additional_human_checks=[],
+                ),
+            ),
         )
-        record.save(publication_path(path))
-        return record
+
+
+def check_reviewer_policy(path: Path, branch: str, remote: str) -> None:
+    policy = reviews.load_policy(path)
+    if (
+        not policy.allow_reviewer_push
+        or not branch.startswith("orchestrator/")
+        or (policy.branch, policy.remote) != (branch, remote)
+    ):
+        raise ValueError(
+            "Enable reviewer publishing for this orchestrator/ development branch and remote."
+        )
+
+
+def commit(
+    path: Path, reviewed: GitPreview, message: str, *, approval_id: str | None = None
+) -> GitPublication:
+    project = Path(DesignSession.load(path).project).resolve()
+    with writer(project):
+        return _commit(path, reviewed, message, approval_id)
+
+
+def _commit(
+    path: Path, reviewed: GitPreview, message: str, approval_id: str | None
+) -> GitPublication:
+    if not message.strip() or len(message) > 500 or sensitive_text(message):
+        raise ValueError("Enter a commit message of 1–500 characters without credentials.")
+    project = Path(DesignSession.load(path).project).resolve()
+    current = _preview(path, reviewed.stage_id, reviewed.paths)
+    if current.fingerprint != reviewed.fingerprint:
+        raise ValueError("Files or Git settings changed. Build a new preview.")
+    approval = reviews.require_approval(path, approval_id, reviewed.fingerprint)
+    if approval.source == "reviewer":
+        check_reviewer_policy(path, reviewed.branch, reviewed.remote)
+    git(project, "add", "--", *reviewed.paths)
+    expected_tree = git(project, "write-tree")
+    git(project, "commit", "-m", message.strip(), "--only", "--", *reviewed.paths)
+    if git(project, "rev-parse", "HEAD^{tree}") != expected_tree:
+        raise ValueError(
+            "Commit hooks changed the approved tree. Inspect the local commit before publishing."
+        )
+    record = GitPublication(
+        evidence_digest=evidence_digest(DesignSession.load(path), path, reviewed.stage_id),
+        approval_id=approval.id,
+        approval_digest=artifact_digest(approval),
+        reviewed_fingerprint=reviewed.fingerprint,
+        design_fingerprint=design_fingerprint(DesignSession.load(path)),
+        paths=reviewed.paths,
+        stage_id=reviewed.stage_id,
+        commit=git(project, "rev-parse", "HEAD"),
+        branch=reviewed.branch,
+        remote=reviewed.remote,
+    )
+    record.save(publication_path(path))
+    return record
 
 
 def push(path: Path) -> GitPublication:
     project = Path(DesignSession.load(path).project).resolve()
     with writer(project):
-        record = GitPublication.load(publication_path(path))
-        state, _, _ = _approved(path, record.stage_id)
-        if design_fingerprint(state) != record.design_fingerprint:
-            raise ValueError("The design changed. Commit the newly accepted work before pushing.")
-        if _status(project) & set(record.paths):
-            raise ValueError(
-                "Committed files have new edits. Review and commit them before pushing."
-            )
-        if (
-            git(project, "rev-parse", "HEAD") != record.commit
-            or git(project, "symbolic-ref", "--short", "HEAD") != record.branch
-            or git(project, "remote", "get-url", "--push", "--all", "origin") != record.remote
-        ):
-            raise ValueError(
-                "HEAD, branch or origin changed. Review the repository in your terminal."
-            )
-        git(
-            project,
-            "-c",
-            "push.followTags=false",
-            "push",
-            "--",
-            record.remote,
-            f"{record.commit}:refs/heads/{record.branch}",
-        )
-        record.pushed = True
-        record.save(publication_path(path))
-        return record
+        return _push(path)
+
+
+def _push(path: Path) -> GitPublication:
+    project = Path(DesignSession.load(path).project).resolve()
+    record = GitPublication.load(publication_path(path))
+    approval = reviews.require_approval(path, record.approval_id, record.reviewed_fingerprint or "")
+    if artifact_digest(approval) != record.approval_digest:
+        raise ValueError("The approval record changed. Review again before publishing.")
+    if approval.source == "reviewer":
+        check_reviewer_policy(path, record.branch, record.remote)
+    state, _, _ = _approved(path, record.stage_id)
+    if evidence_digest(state, path, record.stage_id) != record.evidence_digest:
+        raise ValueError("Task attempts or test evidence changed. Review again before pushing.")
+    if design_fingerprint(state) != record.design_fingerprint:
+        raise ValueError("The design changed. Commit the newly accepted work before pushing.")
+    if _status(project) & set(record.paths):
+        raise ValueError("Committed files have new edits. Review and commit them before pushing.")
+    if (
+        git(project, "rev-parse", "HEAD") != record.commit
+        or git(project, "symbolic-ref", "--short", "HEAD") != record.branch
+        or git(project, "remote", "get-url", "--push", "--all", "origin") != record.remote
+    ):
+        raise ValueError("HEAD, branch or origin changed. Review the repository in your terminal.")
+    git(
+        project,
+        "-c",
+        "push.followTags=false",
+        "push",
+        "--",
+        record.remote,
+        f"{record.commit}:refs/heads/{record.branch}",
+    )
+    record.pushed = True
+    record.save(publication_path(path))
+    return record

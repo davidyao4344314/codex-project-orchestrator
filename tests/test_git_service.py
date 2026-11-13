@@ -50,11 +50,16 @@ def test_initialize_connect_and_writer_lock(tmp_path):
     assert not execution.is_busy(tmp_path)
 
 
+def human_commit(path, reviewed, message):
+    approval = service.approve_user(path, reviewed)
+    return service.commit(path, reviewed, message, approval_id=approval.id)
+
+
 def test_commit_only_reviewed_stage_files_and_push_exact_commit(accepted, monkeypatch):
     project, path = accepted
     reviewed = service.preview(path, "core")
     assert reviewed.paths == ["counter.py"] and "print(5)" in reviewed.diff
-    record = service.commit(path, reviewed, "Implement counter")
+    record = human_commit(path, reviewed, "Implement counter")
     assert service.git(project, "show", "--pretty=", "--name-only", "HEAD") == "counter.py"
     assert not service.GitPublication.load(service.publication_path(path)).pushed
     actual_git = service.git
@@ -86,7 +91,7 @@ def test_staged_unrelated_files_block_commit(accepted):
     (project / "unrelated.txt").write_text("User edits")
     service.git(project, "add", "unrelated.txt")
     with pytest.raises(ValueError, match="staged changes"):
-        service.commit(path, reviewed, "Implement counter")
+        human_commit(path, reviewed, "Implement counter")
 
 
 def test_modified_source_blocks_commit_and_releases_lock(accepted):
@@ -94,7 +99,7 @@ def test_modified_source_blocks_commit_and_releases_lock(accepted):
     reviewed = service.preview(path, "core")
     (project / "counter.py").write_text("changed after review")
     with pytest.raises(ValueError, match="changed after execution"):
-        service.commit(path, reviewed, "Implement counter")
+        human_commit(path, reviewed, "Implement counter")
     assert not execution.is_busy(project)
 
 
@@ -103,12 +108,12 @@ def test_changed_remote_rejects_stale_preview(accepted):
     reviewed = service.preview(path, "core")
     service.git(project, "remote", "set-url", "origin", "https://example.invalid/other.git")
     with pytest.raises(ValueError, match="new preview"):
-        service.commit(path, reviewed, "Implement counter")
+        human_commit(path, reviewed, "Implement counter")
 
 
 def test_push_failure_keeps_commit_for_retry(accepted, monkeypatch):
     _, path = accepted
-    record = service.commit(path, service.preview(path, "core"), "Implement counter")
+    record = human_commit(path, service.preview(path, "core"), "Implement counter")
     actual_git = service.git
 
     def fail_push(project, *args, **kwargs):
@@ -157,7 +162,7 @@ def test_dashboard_git_panel_has_no_write_on_refresh(accepted, monkeypatch):
 
 def test_new_commit_after_receipt_cannot_be_pushed_as_reviewed(accepted):
     project, path = accepted
-    service.commit(path, service.preview(path, "core"), "Implement counter")
+    human_commit(path, service.preview(path, "core"), "Implement counter")
     service.git(project, "commit", "--allow-empty", "-m", "Later commit")
     with pytest.raises(ValueError, match="HEAD, branch or origin changed"):
         service.push(path)
