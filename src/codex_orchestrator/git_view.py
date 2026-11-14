@@ -59,7 +59,10 @@ def git_panel(project: Path, design_path: Path, action):
                     f"Commit target · {reviewed.branch} · {reviewed.head or 'initial commit'}"
                 )
                 selected = st.multiselect("Files to commit", reviewed.paths, default=reviewed.paths)
-                st.code(reviewed.diff or "No text diff available", language="diff")
+                st.code(
+                    reviewed.diff or "No source changes: use the existing commit after AI review.",
+                    language="diff",
+                )
                 message = st.text_input("Commit message", value=f"Implement stage {stage}")
                 confirmed = st.checkbox("I reviewed these files and want to commit them")
                 same_selection = set(selected) == set(reviewed.paths)

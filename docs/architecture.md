@@ -228,3 +228,29 @@ Checkpoint fields are additive. Old receipts missing required AI-review bindings
 but fail closed at publication. Hashes enforce application consistency, not isolation from actors
 who can rewrite local code/state. External editors and Git hooks remain outside the application
 lock. Durable supervision, transactional storage and quantitative review evaluation remain future work.
+
+
+## Sequential stage branches
+
+`stage_branches` stores explicit, revision-bound branch provenance in a per-design checkpoint.
+The revision key includes both revision number and content fingerprint, so identical copied
+revisions cannot reuse earlier branch metadata. Names include design-path identity to avoid
+collisions between designs. Setup is explicit for existing projects; no branch history is invented.
+A shared project lock serializes setup, switching, base refresh, merge checkpoints and execution.
+
+`Run.branch` is additive. Once branching is enabled, `valid_runs` prevents earlier unbound runs
+from satisfying scheduling or stage acceptance. Execution checks the required branch before and
+under the writer lock, records it in the run, and checks it again at worker start/completion.
+Git review/publication enforces the same stage branch. Retry preserves dirty work on that branch;
+switching requires a clean tree. Only one unmerged stage is prepared per revision at a time.
+
+A dependent stage needs accepted upstream runs plus a recorded merge whose exact approved,
+user-pushed SHA is an ancestor of the configured local base. The checkpoint also binds upstream
+attempt/evidence hashes and requires that the stage branch has no newer unreviewed commits.
+Current inputs/outputs are checked at merge recording. Later base edits are not automatically
+certified. Refresh is an explicit fetch and fast-forward synchronization, never a reset or an
+automatic stage merge. Squash/rebase merges fail closed because SHA ancestry cannot prove them.
+
+No-change stages still use the reviewer and user-permission gates, but use the existing HEAD
+rather than an empty commit. Old checkpoints remain intact on new revisions. Multi-user locking,
+parallel worktrees, provider-specific PR status and squash-merge evidence remain future work.

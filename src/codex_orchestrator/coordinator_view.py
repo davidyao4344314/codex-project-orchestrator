@@ -7,6 +7,7 @@ import streamlit as st
 from codex_orchestrator import coordinator
 from codex_orchestrator.codex import CodexError
 from codex_orchestrator.design_models import DesignSession
+from codex_orchestrator.stage_branch_view import stage_branch_panel
 
 
 def coordinator_panel(state, path, source_name, on_open, action):
@@ -19,6 +20,7 @@ def coordinator_panel(state, path, source_name, on_open, action):
         format_func=lambda i: stages[i].title,
         key=f"coordinator_stage_{path.name}_{len(state.revisions)}",
     )
+    stage_branch_panel(state, path, stage, action)
     progress(path, stage, source_name, on_open, action)
 
 
@@ -92,7 +94,10 @@ def progress(path: Path, stage_id: str, source_name, on_open, action):
 
                 action("Recording stage acceptance…", accept)
     elif schedule.status == "accepted":
-        st.success("Stage verification accepted. You can select the next approved stage.")
+        st.success(
+            "Stage verification accepted. Complete AI review, push permission "
+            "and the merge checkpoint before dependent stages."
+        )
     st.caption(
         "Stage acceptance is recorded by you. This coordinator does not merge code "
         "or provide an independent AI review."

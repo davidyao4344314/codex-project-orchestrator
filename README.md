@@ -6,7 +6,7 @@ context, then run approved assignments through your installed Codex CLI one at a
 
 ## Current workflow
 
-The diagram shows the implemented workflow as of 13 November 2026. Product stages 1–3 describe
+The diagram shows the implemented workflow as of 15 November 2026 (with stage branches enabled). Product stages 1–3 describe
 the planner itself; **delivery stages** are the smaller implementation milestones it creates
 for your project. Every delivery stage has its own approval and verification gates.
 
@@ -22,8 +22,9 @@ flowchart TD
     DesignReview -->|Feedback or reallocation| Design
     DesignReview -->|Approve| StagePlan{Approve this delivery stage's plan?}
     StagePlan -->|Feedback| Design
-    StagePlan -->|Approve| Dispatch[Stage 3: explicitly run next ready task]
-    Dispatch --> Gates{Prerequisite tasks and stages accepted?}
+    StagePlan -->|Approve| Branch[Create or switch to this stage branch from the integration base]
+    Branch --> Dispatch[Stage 3: explicitly run next ready task]
+    Dispatch --> Gates{Prerequisite tasks verified and stages merged?}
     Gates -->|No| Wait[Resolve prerequisites or missing approvals]
     Wait --> Dispatch
     Gates -->|Yes| Context[Rebuild and save bounded context under project lock]
@@ -43,16 +44,18 @@ flowchart TD
     Tasks -->|Yes| StageReview[Review combined changes and record stage test evidence]
     StageReview --> Accept{Accept stage verification?}
     Accept -->|Changes needed| Inspect
-    Accept -->|Accept| More{More delivery stages?}
-    More -->|Yes| StagePlan
-    More -->|No| Git[Preview accepted stage files in Git connection]
+    Accept -->|Accept| Git[Preview this stage in Git connection]
     Git --> Approval{Independent AI reviewer approves exact changes?}
     Approval -->|Approved| Commit[Prepare local commit]
     Approval -->|Changes requested or blocked| Inspect
     Commit --> Permission{User gives permission for this commit and destination?}
     Permission -->|Yes| Push[Push approved commit]
     Permission -->|No or not yet| Local[Keep local commit; do not push]
-    Push --> Done[Final human review and manual merge]
+    Push --> Merge[User merges stage branch into main]
+    Merge --> Record[Refresh local base and record stage merge]
+    Record --> More{More delivery stages?}
+    More -->|Yes| StagePlan
+    More -->|No| Done[Project delivery complete]
 ```
 
 Frontend, backend, database, integration and general workers share one runner. Assignments
@@ -622,3 +625,48 @@ through the new gate. Inspect such commits in your terminal.
 This is model review plus user permission, not a correctness guarantee or isolation from someone
 who can rewrite local application state. Required tests, ordinary Git authentication, sequential
 writer locking and manual merge/deployment remain. See [reviewer acceptance tests](docs/reviewer-testing.md).
+
+## One branch per delivery stage
+
+In **Dashboard → Execution coordinator → Delivery stage branch**, enable stage branches for the
+approved design revision. Existing projects keep their previous execution behavior until this
+explicit upgrade. No branches are renamed or reset automatically. The runner remains sequential;
+frontend/backend/database are agent roles, not permanent branches.
+
+Start on a clean, committed integration base (normally main). For an empty repository, create an
+initial README/.gitignore commit in your terminal first. Keep generated plans, logs, environments
+and credentials ignored. Enter the base branch and choose **Enable stage branches for this revision**.
+
+For each delivery stage:
+
+1. Select the stage and choose **Create or switch to stage branch**. Names include a project/design
+   identifier and revision, followed by `stage-1-storage`, `stage-2-api`, etc. The branch starts at
+   the local base. The app does not reuse an unrelated existing branch or carry dirty files across.
+2. Run tasks, verify actual results and accept the stage's manual checks. All workers for this
+   stage share that branch. Retrying on the same branch preserves partial work. The direct task
+   runner enforces the same branch gate as the coordinator.
+3. In Git connection, preview the stage, obtain AI review, and prepare the local commit. Give your
+   explicit permission to push the displayed SHA/branch/remote. Only selected files are published.
+4. Merge the stage branch into the base yourself, using your Git host or terminal. Use a normal
+   merge or fast-forward. If merged remotely, choose **Refresh base from origin**: this explicitly
+   fetches and fast-forwards the local base. Divergence stops with an error; nothing is reset.
+5. Choose **Record stage merge into base**. The app checks the pushed receipt, AI review, evidence
+   and approved commit's ancestry in the local base. Stage acceptance alone is insufficient.
+6. Only then prepare a dependent stage. It starts from the integrated base. Even independent
+   stages run one at a time and must finish their merge checkpoint before another stage starts.
+
+Verification-only stages may produce no source changes. They still need tests, stage acceptance,
+AI review and push permission; their receipt uses the existing commit instead of an empty commit.
+
+Branch checkpoints are stored beside the design in `.stage-branches.json`, with separate revision
+history. Enabling does not invent branch provenance for old runs: rerun those tasks on their stage
+branch. New design revisions require explicit setup on the clean base; previous branches/history
+are retained. Polling only reads state and never switches branches, fetches, merges or publishes.
+
+This first version recognizes ancestor-preserving merges only. Squash/rebase merges replace the
+reviewed SHA and cannot satisfy the merge checkpoint. Complete those workflows outside the app
+or use normal merge/fast-forward for managed stages. The checkpoint validates local ancestry and
+recorded evidence, not a hosting provider's branch-protection rules or the correctness of later
+base edits. Parallel workers still require separate worktrees in a future increment.
+
+See [stage branch acceptance checks](docs/stage-branch-testing.md).
