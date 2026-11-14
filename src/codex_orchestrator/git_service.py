@@ -144,6 +144,9 @@ def _approved(path: Path, stage_id: str):
     project = Path(state.project).resolve()
     if not repository(project):
         raise ValueError("Select a project whose folder is the Git repository root.")
+    from codex_orchestrator.stage_branches import require_branch
+
+    require_branch(state, path, stage_id)
     tasks = [t for t in state.revisions[-1].design.tasks if t.stage_id == stage_id]
     latest = latest_runs(path, len(state.revisions))
     for task in tasks:
@@ -196,7 +199,7 @@ def _preview(path: Path, stage_id: str, selected: list[str] | None = None) -> Gi
     )
     candidates = sorted(_status(project) & owned)
     paths = candidates if selected is None else sorted(set(selected))
-    if not paths or len(paths) > 64 or not set(paths) <= set(candidates):
+    if (selected == [] and candidates) or len(paths) > 64 or not set(paths) <= set(candidates):
         raise ValueError("Select changed files owned by this accepted stage.")
     observed = {}
     for name in paths:
@@ -210,7 +213,7 @@ def _preview(path: Path, stage_id: str, selected: list[str] | None = None) -> Gi
             )
         observed[name] = item.model_dump()
     head = git(project, "rev-parse", "--verify", "HEAD", optional=True) or None
-    diff = git(project, "diff", "--no-ext-diff", "--no-textconv", "--", *paths)
+    diff = git(project, "diff", "--no-ext-diff", "--no-textconv", "--", *paths) if paths else ""
     for name, item in observed.items():
         if item["exists"] and not git(project, "ls-files", "--", name):
             diff += f"\nNew file: {name}\n" + item["text"]
@@ -287,9 +290,11 @@ def _commit(
         raise ValueError("Files or Git settings changed. Build a new preview.")
     approval = reviews.require_approval(path, approval_id, reviewed.fingerprint)
     reviewer = reviews.require_reviewer(path, reviewed.stage_id, reviewed.fingerprint)
-    git(project, "add", "--", *reviewed.paths)
     expected_tree = git(project, "write-tree")
-    git(project, "commit", "-m", message.strip(), "--only", "--", *reviewed.paths)
+    if reviewed.paths:
+        git(project, "add", "--", *reviewed.paths)
+        expected_tree = git(project, "write-tree")
+        git(project, "commit", "-m", message.strip(), "--only", "--", *reviewed.paths)
     if git(project, "rev-parse", "HEAD^{tree}") != expected_tree:
         raise ValueError(
             "Commit hooks changed the approved tree. Inspect the local commit before publishing."

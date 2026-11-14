@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Literal
 
-from codex_orchestrator import execution
+from codex_orchestrator import execution, stage_branches
 from codex_orchestrator.assignment_context import task_context
 from codex_orchestrator.coordination_store import (
     StageAcceptance,
@@ -68,7 +68,7 @@ def stage_schedule(path: Path, stage_id: str) -> StageSchedule:
     design = state.revisions[-1].design
     if stage_id not in {s.id for s in design.stages}:
         raise ValueError("Unknown delivery stage.")
-    latest = latest_runs(path, len(state.revisions))
+    latest = stage_branches.valid_runs(state, path, latest_runs(path, len(state.revisions)))
     verified = {i for i, r in latest.items() if r.status == "completed" and r.verified}
     graph = task_graph(design)
     tasks = []
@@ -122,6 +122,10 @@ def stage_schedule(path: Path, stage_id: str) -> StageSchedule:
         return result(
             "awaiting_stage_acceptance", "Review combined stage changes and required human checks."
         )
+    try:
+        stage_branches.require_branch(state, path, stage_id)
+    except ValueError as exc:
+        return result("blocked", str(exc))
     blockers = context_blockers(
         design, Path(state.project), task_ids={t.id for t in tasks if t.status == "ready"}
     )

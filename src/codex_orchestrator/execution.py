@@ -63,14 +63,17 @@ def start_run(state, path, task, context=None):
     review = current_review(state, task.stage_id)
     if not review or not review.approved:
         raise ValueError("Approve this stage's plan before starting implementation.")
+    from codex_orchestrator.stage_branches import require_branch, valid_runs
+
     previous = {
         task_id
-        for task_id, run in latest_runs(path, len(state.revisions)).items()
+        for task_id, run in valid_runs(state, path, latest_runs(path, len(state.revisions))).items()
         if run.verified and run.status == "completed"
     }
     dependencies = task_graph(state.revisions[-1].design)[task.id]
     if not set(dependencies) <= previous:
         raise ValueError("Verify prerequisite tasks and stages before starting this task.")
+    require_branch(state, path, task.stage_id)
     executable = find_codex()
     if not executable:
         raise CodexError("Run orchestrator setup to install and sign in to Codex.")
@@ -97,6 +100,13 @@ def start_run(state, path, task, context=None):
             # Caller manifests are previews; dispatch rebuilds under the writer lock.
             check_source(state)
             state.require_current(path)
+            require_branch(state, path, task.stage_id)
+            from codex_orchestrator.stage_branches import load as load_branches
+
+            if load_branches(path) is not None:
+                from codex_orchestrator.git_service import git
+
+                run.branch = git(Path(state.project), "symbolic-ref", "--short", "HEAD")
             package = build_context(state, task, path)
             package.require_ready()
             run.context_digest = package.digest()
@@ -134,6 +144,11 @@ def _worker(executable, project, folder, lock, stop):
     spec, before, commands = None, None, []
     folder = folder.resolve()
     try:
+        if run.branch:
+            from codex_orchestrator.git_service import git
+
+            if git(Path(project), "symbolic-ref", "--short", "HEAD") != run.branch:
+                raise ValueError("Stage branch changed before worker execution.")
         if run.worker_contract_version == 1:
             spec = WorkerSpec.load(folder / "worker_spec.json")
             if spec.context_digest != run.context_digest or (
@@ -253,6 +268,8 @@ def _worker(executable, project, folder, lock, stop):
             )
             if run.status == "failed" and not run.error:
                 run.error = f"Codex exited with code {code}; see diagnostics."
+            if run.branch and git(Path(project), "symbolic-ref", "--short", "HEAD") != run.branch:
+                raise ValueError("Worker changed the stage branch; inspect the repository.")
             if spec and before:
                 finalize_worker(run, spec, before, project, folder, commands)
     except Exception as exc:

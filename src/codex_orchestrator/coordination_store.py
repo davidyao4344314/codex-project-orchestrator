@@ -51,7 +51,9 @@ def stage_accepted(state: DesignSession, path: Path, stage_id: str) -> bool:
     acceptance = load_coordination(state, path).accepted_stages.get(stage_id)
     if acceptance is None:
         return False
-    latest = latest_runs(path, len(state.revisions))
+    from codex_orchestrator.stage_branches import valid_runs
+
+    latest = valid_runs(state, path, latest_runs(path, len(state.revisions)))
     tasks = [t for t in state.revisions[-1].design.tasks if t.stage_id == stage_id]
     return (
         bool(tasks)

@@ -74,7 +74,11 @@ def review_payload(path: Path, reviewed: git.GitPreview) -> str:
             raise ValueError("Review files are unreadable; build a new preview.")
         files[name] = dict(exists=item.exists, text=item.text, sha256=item.sha256)
     # Full diff is regenerated below: GitPreview.diff is only a display preview.
-    diff = git.git(project, "diff", "--no-ext-diff", "--no-textconv", "--", *reviewed.paths)
+    diff = (
+        git.git(project, "diff", "--no-ext-diff", "--no-textconv", "--", *reviewed.paths)
+        if reviewed.paths
+        else ""
+    )
     payload = json.dumps(
         dict(
             stage=stage.model_dump(),
