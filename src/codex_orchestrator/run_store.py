@@ -18,6 +18,7 @@ class Run(SessionData):
     revision: int = Field(ge=1)
     status: Literal["starting", "running", "stopped", "completed", "failed", "blocked"] = "starting"
     thread_id: str | None = None
+    branch: str | None = None
     model: str | None = None
     prompt: str
     error: str | None = None
