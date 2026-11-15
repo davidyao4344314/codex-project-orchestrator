@@ -6,7 +6,7 @@ context, then run approved assignments through your installed Codex CLI one at a
 
 ## Current workflow
 
-The diagram shows the implemented workflow as of 15 November 2026 (with stage branches enabled). Product stages 1–3 describe
+The diagram shows the implemented workflow as of 16 November 2026 (with stage branches enabled). Product stages 1–3 describe
 the planner itself; **delivery stages** are the smaller implementation milestones it creates
 for your project. Every delivery stage has its own approval and verification gates.
 
@@ -670,3 +670,44 @@ recorded evidence, not a hosting provider's branch-protection rules or the corre
 base edits. Parallel workers still require separate worktrees in a future increment.
 
 See [stage branch acceptance checks](docs/stage-branch-testing.md).
+
+## Resume previous work
+
+On Home, choose **Resume project** for a saved project. This reads checkpoints and opens the
+recommended Requirements, Technical design, Dashboard or Agent workspace page. It does not
+start a model call. Existing projects can also choose **Check saved progress** after opening.
+
+The Resume project panel shows the last completed step, current Git branch/HEAD when available,
+pending task/stage, detected problems and the next explicit action. It recognizes saved intake
+or architect questions, design approval, active work, interrupted attempts, task verification,
+AI review, a local commit awaiting push permission and a pushed stage awaiting its merge. Source,
+review/evidence or destination changes are flagged rather than treated as current acceptance.
+The panel rechecks state on page reruns; **Go to recommended step** only changes navigation.
+
+A retry starts a new worker attempt with a rebuilt context and a bounded recovery brief. The
+brief includes the same task's latest attempt ID/status, earlier summary/error, historical
+command/exit-code observations, scope violations and current owned-input hashes. It instructs
+the worker to inspect existing partial edits and rerun all required checks. It does not replay
+an old prompt or claim past tests still pass. Earlier attempts and code edits are preserved.
+
+For an interrupted worker:
+
+1. Inspect the recorded Codex chat/processes and partial files. A live owning application,
+   worker PID or process group prevents recovery and another writer.
+2. When the app can identify a single unfinished worker and finds no live owner/worker/group,
+   the panel offers **Recover interrupted worker**. Confirm that you inspected partial edits
+   and stopped external writers, then click it. This records stopped/unverified status and
+   releases only the matching project lease; it never deletes files or kills processes.
+3. Explicitly retry from the agent workspace/coordinator. Expect a new attempt with recovery
+   context, fresh tests and the normal verification, AI-review and push-permission gates.
+
+New jobs save owner/process metadata; old sessions remain readable. Legacy/unreadable locks,
+interrupted Git/review locks, multiple ambiguous unfinished runs, and a crash in the tiny window
+before a worker PID is saved require terminal/process inspection and manual lock recovery. The
+app does not delete a lock because it is old or assume an unknown process has stopped. Review
+attempts without a final decision remain blocked; rerunning review is an explicit action.
+
+This is local recovery, not a durable background supervisor. External/native writers and detached
+children can escape application observation; process checks plus your confirmation complement
+rather than replace that boundary. No saved push permission is restored: each push needs your
+explicit approval of the displayed commit and destination. See [recovery acceptance checks](docs/recovery-testing.md).

@@ -37,6 +37,7 @@ from codex_orchestrator.interactive import (
     revise_plan,
     submit_answer,
 )
+from codex_orchestrator.recovery_view import resume_panel, select_resume
 from codex_orchestrator.selection import selection_menu
 from codex_orchestrator.session import PlanningSession
 from codex_orchestrator.web_widgets import bullet_list
@@ -454,6 +455,12 @@ def main():
                     st.subheader(project_session.project_name)
                     st.caption(project_session.project)
                     st.write(f"Requirements · {project_session.phase}")
+                    if st.button("Resume project", key=f"resume_home_{project_path.name}"):
+                        try:
+                            select_resume(project_path)
+                            st.rerun()
+                        except (OSError, ValueError) as exc:
+                            st.warning(str(exc))
                     if st.button("Open dashboard", key=f"home_{project_path.name}"):
                         st.session_state.active = str(project_path)
                         st.session_state[f"view_{project_path.name}"] = "Dashboard"
@@ -467,6 +474,7 @@ def main():
         allocation_sidebar(path, action)
         st.title(session.project_name)
         st.caption(session.project)
+        resume_panel(path, action)
         view = st.radio(
             "Stage",
             ["Dashboard", "Requirements", "Technical design", "Agent workspace"],

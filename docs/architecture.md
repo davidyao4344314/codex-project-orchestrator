@@ -71,8 +71,8 @@ file edits or native Codex follow-ups therefore still require human re-verificat
   deployments are prompt instructions inside the project sandbox, not per-file enforcement.
 - Parallel execution needs isolated worktrees, a durable supervisor, and explicit integration
   gates. Do not add simultaneous writers to the existing project folder.
-- Hard crashes can leave a lock behind. Recovery is currently manual after checking that
-  the corresponding process is stopped. Do not automatically delete locks based only on age.
+- Hard crashes can leave a lock behind. Structured worker leases support explicit, process-checked
+  recovery; legacy/ambiguous and Git/review locks still need manual inspection. Never release by age.
 - File checkpoints and optimistic checks suit a local single-user tool. Multi-user or multiple
   server processes need transactional updates and coordinated job ownership.
 - Native desktop routing, browser dragging/highlighting, and real-account model behavior
@@ -254,3 +254,34 @@ automatic stage merge. Squash/rebase merges fail closed because SHA ancestry can
 No-change stages still use the reviewer and user-permission gates, but use the existing HEAD
 rather than an empty commit. Old checkpoints remain intact on new revisions. Multi-user locking,
 parallel worktrees, provider-specific PR status and squash-merge evidence remain future work.
+
+
+## Recovery and resume
+
+`project_activity` supplies the shared lock path, structured token/owner/start identity and
+conservative PID/process-group observations. New Git/review writers use token-matched release;
+workers persist their child PID/start metadata before writing the prompt. Old records have
+additive defaults. Unknown metadata is a blocker, not evidence that work stopped.
+
+`recovery` derives read-only navigation guidance from planning/design checkpoints, current runs,
+branch state, verified artifact/source hashes, AI review and publication receipts. Git publication
+validation is shared with the actual push gate but never grants permission or publishes. Resume
+navigation and inspection invoke no inference, branch switch, retry, review acceptance or push.
+A local commit awaiting permission is recognized rather than recreated.
+
+Explicit reconciliation of an interrupted worker rechecks the lease, live owner, child/group and
+run state under the local execution guard, uses an exclusive lease when none remains, records
+stopped/unverified status and releases only the matching lease. Files and history are untouched.
+No process is killed by recovery. An active/unreconciled run blocks new attempts, including after
+a missing lock. Git/review operations, legacy locks and incomplete worker launch identity remain
+manual: without reliable child identity the service fails closed.
+
+`recovery_brief` builds at most 16 KiB of same-task, same-revision retry context from bounded
+history and current context-resource hashes. Historical commands/violations are labeled as such;
+all required tests remain mandatory. Secrets recognizable by existing heuristics are excluded.
+`recovery_view` opens the derived view and exposes explicit recovery/navigation controls.
+
+Process observations are local and conservative, with stable UTC/C-locale owner start strings.
+They are not a durable supervisor, distributed transaction or exhaustive external-writer detector.
+The gap before child metadata is checkpointed and detached children require manual inspection.
+Existing human stage acceptance, AI review, branch provenance and fresh per-push permission remain.
