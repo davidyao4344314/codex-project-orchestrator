@@ -10,6 +10,7 @@ from pathlib import Path
 from tempfile import TemporaryFile
 from urllib.parse import urlsplit
 
+from codex_orchestrator import project_activity
 from codex_orchestrator import review_store as reviews
 from codex_orchestrator.context_files import is_private_path, sensitive_text
 from codex_orchestrator.coordination_store import design_fingerprint, stage_accepted
@@ -92,17 +93,14 @@ def repository(project: Path) -> bool:
 
 @contextmanager
 def writer(project: Path):
-    lock = project_lock(project)
     try:
-        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        lease = project_activity.create(project, "git/review")
     except FileExistsError as exc:
         raise ValueError("Wait for the active project operation to finish.") from exc
     try:
-        with os.fdopen(fd, "w") as stream:
-            stream.write(f"Git operation PID {os.getpid()}\n")
         yield
     finally:
-        lock.unlink(missing_ok=True)
+        project_activity.release(project, lease)
 
 
 def initialize(project: Path):
@@ -334,6 +332,24 @@ def _push(path: Path, permission: PushPermission | None = None) -> GitPublicatio
         raise ValueError(
             "User permission is required for this exact commit, branch and remote before push."
         )
+    validate_publication(path, record)
+    git(
+        project,
+        "-c",
+        "push.followTags=false",
+        "push",
+        "--",
+        record.remote,
+        f"{record.commit}:refs/heads/{record.branch}",
+    )
+    record.pushed = True
+    record.save(publication_path(path))
+    return record
+
+
+def validate_publication(path: Path, record: GitPublication) -> None:
+    """Read-only validation for recovery guidance; never grants push permission."""
+    project = Path(DesignSession.load(path).project).resolve()
     reviewer = reviews.require_reviewer(path, record.stage_id, record.reviewed_fingerprint or "")
     if reviewer.id != record.reviewer_id or artifact_digest(reviewer) != record.reviewer_digest:
         raise ValueError("The AI review changed or is missing. Review again before pushing.")
@@ -353,15 +369,3 @@ def _push(path: Path, permission: PushPermission | None = None) -> GitPublicatio
         or git(project, "remote", "get-url", "--push", "--all", "origin") != record.remote
     ):
         raise ValueError("HEAD, branch or origin changed. Review the repository in your terminal.")
-    git(
-        project,
-        "-c",
-        "push.followTags=false",
-        "push",
-        "--",
-        record.remote,
-        f"{record.commit}:refs/heads/{record.branch}",
-    )
-    record.pushed = True
-    record.save(publication_path(path))
-    return record

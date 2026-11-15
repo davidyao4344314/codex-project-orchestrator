@@ -19,6 +19,9 @@ class Run(SessionData):
     status: Literal["starting", "running", "stopped", "completed", "failed", "blocked"] = "starting"
     thread_id: str | None = None
     branch: str | None = None
+    worker_pid: int | None = None
+    worker_started: str | None = None
+    recovery_from: str | None = None
     model: str | None = None
     prompt: str
     error: str | None = None
