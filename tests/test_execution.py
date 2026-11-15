@@ -89,6 +89,8 @@ def test_worker_persists_thread_events_and_releases_lock(tmp_path, monkeypatch, 
     commands = []
 
     def fake(command, **kwargs):
+        if command[0] == "ps":
+            return original(command, **kwargs)
         commands.append(command)
         return original([sys.executable, str(script)], **kwargs)
 

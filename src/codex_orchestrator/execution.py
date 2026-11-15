@@ -1,17 +1,16 @@
 """Bounded persistent Codex execution, with one writer per project."""
 
 import atexit
-import hashlib
 import json
 import os
 import signal
 import subprocess
 import sys
-import tempfile
 import threading
 from pathlib import Path
 from uuid import uuid4
 
+from codex_orchestrator import project_activity
 from codex_orchestrator.codex import CodexError, find_codex
 from codex_orchestrator.context_builder import build_context
 from codex_orchestrator.context_models import ContextLimits
@@ -19,6 +18,7 @@ from codex_orchestrator.coordination_store import check_stage_prerequisites, loa
 from codex_orchestrator.design import check_source
 from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.design_validation import task_graph, validate_design
+from codex_orchestrator.recovery_brief import build_recovery_brief
 from codex_orchestrator.run_store import Run, latest_runs, run_directory, runs
 from codex_orchestrator.stage_review import current_review
 from codex_orchestrator.worker_audit import snapshot_workspace
@@ -41,10 +41,7 @@ _workers = {}
 
 
 def project_lock(project):
-    identity = hashlib.sha256(str(Path(project).resolve()).encode()).hexdigest()
-    directory = Path(tempfile.gettempdir()) / f"codex-orchestrator-locks-{os.getuid()}"
-    directory.mkdir(mode=0o700, exist_ok=True)
-    return directory / f"{identity}.lock"
+    return project_activity.lock_path(project)
 
 
 def is_busy(project):
@@ -74,6 +71,8 @@ def start_run(state, path, task, context=None):
     if not set(dependencies) <= previous:
         raise ValueError("Verify prerequisite tasks and stages before starting this task.")
     require_branch(state, path, task.stage_id)
+    if any(r.status in {"starting", "running"} for r in runs(path)):
+        raise ValueError("An active or unfinished run exists. Inspect or recover it first.")
     executable = find_codex()
     if not executable:
         raise CodexError("Run orchestrator setup to install and sign in to Codex.")
@@ -89,17 +88,17 @@ def start_run(state, path, task, context=None):
     lock = project_lock(state.project)
     with _guard:
         try:
-            fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            lease = project_activity.create(state.project, "worker", run.id)
         except FileExistsError as exc:
             raise ValueError(
                 "A project run is active. Stop it before starting or reassigning work."
             ) from exc
         try:
-            with os.fdopen(fd, "w") as stream:
-                stream.write(f"Planner PID {os.getpid()} · run {run.id}\n")
             # Caller manifests are previews; dispatch rebuilds under the writer lock.
             check_source(state)
             state.require_current(path)
+            if any(r.status in {"starting", "running"} for r in runs(path)):
+                raise ValueError("An active or unfinished run exists. Inspect or recover it first.")
             require_branch(state, path, task.stage_id)
             from codex_orchestrator.stage_branches import load as load_branches
 
@@ -120,7 +119,10 @@ def start_run(state, path, task, context=None):
                 for r in runs(path)
                 if r.task_id == task.id
             ][-3:]
-            run.prompt = worker_prompt(spec, package, previous_runs)
+            recovery = build_recovery_brief(state, task, path, package)
+            if recovery:
+                run.recovery_from = recovery["previous_run_id"]
+            run.prompt = worker_prompt(spec, package, previous_runs, recovery)
             package.save(folder / "context.json")
             run.save(folder / "run.json")
             stop = threading.Event()
@@ -131,7 +133,7 @@ def start_run(state, path, task, context=None):
             _workers[run.id] = worker
             worker.start()
         except BaseException:
-            lock.unlink(missing_ok=True)
+            project_activity.release(state.project, lease)
             _active.pop(run.id, None)
             raise
     return run
@@ -198,6 +200,9 @@ def _worker(executable, project, folder, lock, stop):
                 start_new_session=True,
             )
 
+            run.worker_pid = process.pid
+            run.worker_started = project_activity.process_started(process.pid)
+            run.save(folder / "run.json")
             _processes[run.id] = process
 
             def terminate():

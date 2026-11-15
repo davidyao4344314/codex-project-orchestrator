@@ -27,7 +27,7 @@ def prepare_worker(package, project, folder):
     return spec
 
 
-def worker_prompt(spec, package, previous_runs):
+def worker_prompt(spec, package, previous_runs, recovery_brief=None):
     return (
         "Implement only this approved assignment using its selected worker profile and context. "
         "Respect owned paths, scope exclusions, interfaces, skills and dependencies. "
@@ -52,6 +52,7 @@ def worker_prompt(spec, package, previous_runs):
                 "worker_spec": spec.model_dump(),
                 "assignment_context": package.model_dump(),
                 "previous_runs": previous_runs,
+                "recovery_brief": recovery_brief,
             },
             ensure_ascii=False,
         )
