@@ -102,7 +102,7 @@ def finalize_worker(run, spec, before, project, folder, commands):
         evidence.save(folder / "worker_evidence.json")
 
 
-def check_worker_verification(run, project, folder):
+def verified_artifacts(run, folder):
     spec = WorkerSpec.load(folder / "worker_spec.json")
     report = load_result(folder / "worker_result.json")
     after = WorkspaceSnapshot.load(folder / "workspace_after.json")
@@ -116,6 +116,17 @@ def check_worker_verification(run, project, folder):
         )
     ):
         raise ValueError("Worker artifacts changed; investigate before accepting verification.")
+    return spec, after
+
+
+def file_signature(file):
+    if file is None or file.marker:
+        raise ValueError("Worker file observation is missing or cannot be audited.")
+    return file.exists, file.sha256
+
+
+def check_worker_verification(run, project, folder):
+    spec, after = verified_artifacts(run, folder)
     current = snapshot_workspace(project, spec.audit_paths, folder, previous=after)
     for name in spec.audit_paths:
         old, new = after.files.get(name), current.files.get(name)

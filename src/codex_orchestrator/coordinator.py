@@ -121,6 +121,10 @@ def stage_schedule(path: Path, stage_id: str) -> StageSchedule:
         return result("blocked", str(exc))
     if stage_accepted(state, path, stage_id):
         return result("accepted")
+    try:
+        stage_branches.require_branch(state, path, stage_id)
+    except ValueError as exc:
+        return result("blocked", str(exc))
     if any(t.status in {"failed", "stopped", "blocked"} for t in tasks):
         if any(needs_retry(state, path, t.id, latest.get(t.id)) for t in tasks):
             return result("blocked", "Targeted user feedback is pending; retry the selected task.")
@@ -132,10 +136,6 @@ def stage_schedule(path: Path, stage_id: str) -> StageSchedule:
         return result(
             "awaiting_stage_acceptance", "Review combined stage changes and required human checks."
         )
-    try:
-        stage_branches.require_branch(state, path, stage_id)
-    except ValueError as exc:
-        return result("blocked", str(exc))
     blockers = context_blockers(
         design, Path(state.project), task_ids={t.id for t in tasks if t.status == "ready"}
     )
@@ -205,6 +205,11 @@ def accept_stage(path: Path, stage_id: str, evidence: str) -> None:
     if not review or not review.approved:
         raise ValueError("Approve this stage's plan first.")
     check_stage_prerequisites(state, path, stage_id)
+    from codex_orchestrator.stage_verification import check_stage_verification
+
+    latest = latest_runs(path, len(state.revisions))
+    if all(latest[t.id].worker_contract_version for t in schedule.tasks):
+        check_stage_verification(state, path, stage_id)
     saved = load_coordination(state, path)
     saved.accepted_stages[stage_id] = StageAcceptance(
         run_ids={t.id: t.run_id for t in schedule.tasks}, evidence=evidence.strip()

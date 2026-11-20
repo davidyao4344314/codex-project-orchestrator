@@ -184,6 +184,7 @@ def _worker(executable, project, folder, lock, stop):
                 )
             before = snapshot_workspace(project, spec.audit_paths, folder)
             before.save(folder / "workspace_before.json")
+            run.workspace_before_digest = artifact_digest(before)
         command = [
             executable,
             "--no-daemon",

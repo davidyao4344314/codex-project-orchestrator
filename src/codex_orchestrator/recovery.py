@@ -20,7 +20,7 @@ from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.recovery_brief import safe_folder
 from codex_orchestrator.run_store import Run, latest_runs, runs
 from codex_orchestrator.session import PlanningSession, SessionData
-from codex_orchestrator.worker_runtime import check_worker_verification
+from codex_orchestrator.stage_verification import check_stage_verification
 
 
 class ResumeSnapshot(SessionData):
@@ -213,6 +213,7 @@ def inspect_project(source: Path, design_path: Path | None = None) -> ResumeSnap
         return snapshot
     try:
         settings, branch_revision = stage_branches.current(state, path)
+        stage_branches.require_setup(state, path)
     except (ValueError, CodexError) as exc:
         snapshot.status, snapshot.next_action = "branch_setup_needed", str(exc)
         return snapshot
@@ -226,21 +227,23 @@ def inspect_project(source: Path, design_path: Path | None = None) -> ResumeSnap
             continue
         schedule = stage_schedule(path, stage.id)
         snapshot.stage_id = stage.id
+        try:
+            check_stage_verification(state, path, stage.id, partial=True)
+        except (OSError, ValueError, CodexError) as exc:
+            snapshot.view = "Agent workspace"
+            snapshot.task_id = getattr(exc, "task_id", None)
+            snapshot.status = "stale_output"
+            snapshot.next_action = (
+                "Source changed. Inspect differences and rerun the affected task."
+            )
+            snapshot.warnings.append(str(exc))
+            return snapshot
         for task in schedule.tasks:
             run = latest.get(task.id)
             if run and run.branch and snapshot.branch and run.branch != snapshot.branch:
                 snapshot.warnings.append(
                     f"Task {task.id} ran on {run.branch}; current branch is {snapshot.branch}."
                 )
-            if run and run.status == "completed" and run.worker_contract_version:
-                try:
-                    check_worker_verification(run, project, safe_folder(path, run.id))
-                except (OSError, ValueError, CodexError) as exc:
-                    snapshot.view, snapshot.task_id = "Agent workspace", task.id
-                    snapshot.status = "stale_output"
-                    snapshot.next_action = "Source changed. Inspect differences and rerun the task."
-                    snapshot.warnings.append(str(exc))
-                    return snapshot
             if run and (run.status != "completed" or not run.verified):
                 snapshot.view, snapshot.task_id = "Agent workspace", task.id
                 snapshot.status = (

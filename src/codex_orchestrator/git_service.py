@@ -19,9 +19,9 @@ from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.execution import project_lock
 from codex_orchestrator.run_store import latest_runs, run_directory
 from codex_orchestrator.session import SessionData
+from codex_orchestrator.stage_verification import check_stage_verification
 from codex_orchestrator.worker_audit import _file_state, _status
 from codex_orchestrator.worker_models import WorkerEvidence, artifact_digest
-from codex_orchestrator.worker_runtime import check_worker_verification
 
 
 class GitPreview(SessionData):
@@ -149,14 +149,7 @@ def _approved(path: Path, stage_id: str):
 
     require_branch(state, path, stage_id)
     tasks = [t for t in state.revisions[-1].design.tasks if t.stage_id == stage_id]
-    latest = latest_runs(path, len(state.revisions))
-    for task in tasks:
-        run = latest[task.id]
-        if run.worker_contract_version != 1:
-            raise ValueError(
-                "Rerun legacy tasks with structured worker evidence before publishing."
-            )
-        check_worker_verification(run, project, run_directory(path) / run.id)
+    check_stage_verification(state, path, stage_id)
     return state, project, {p for t in tasks for p in t.owned_paths}
 
 
@@ -173,16 +166,25 @@ def review_evidence(folder: Path) -> WorkerEvidence:
 
 def evidence_digest(state: DesignSession, path: Path, stage_id: str) -> str:
     latest = latest_runs(path, len(state.revisions))
-    attempts = [
-        (
-            t.id,
-            latest[t.id].id,
-            latest[t.id].worker_result_digest,
-            artifact_digest(review_evidence(run_directory(path) / latest[t.id].id)),
+    attempts = []
+    for task in state.revisions[-1].design.tasks:
+        if task.stage_id != stage_id:
+            continue
+        run = latest[task.id]
+        attempt = (
+            task.id,
+            run.id,
+            run.worker_result_digest,
+            artifact_digest(review_evidence(run_directory(path) / run.id)),
         )
-        for t in state.revisions[-1].design.tasks
-        if t.stage_id == stage_id
-    ]
+        # Preserve evidence identities for already-reviewed legacy attempts.
+        if run.workspace_before_digest:
+            attempt += (
+                run.worker_spec_digest,
+                run.workspace_before_digest,
+                run.workspace_after_digest,
+            )
+        attempts.append(attempt)
     return hashlib.sha256(json.dumps(attempts).encode()).hexdigest()
 
 
@@ -226,7 +228,11 @@ def _preview(path: Path, stage_id: str, selected: list[str] | None = None) -> Gi
     feedback = decision(state, path, stage_id)
     identity = [design_fingerprint(state), head, branch, remote, observed, diff, attempts]
     if feedback:
-        identity.append(feedback.model_dump(mode="json"))
+        payload = feedback.model_dump(mode="json")
+        # Old acceptance receipts predate delivery session identities.
+        if payload.get("session_name") is None:
+            payload.pop("session_name", None)
+        identity.append(payload)
     fingerprint = hashlib.sha256(
         json.dumps(
             identity,

@@ -11,10 +11,9 @@ from codex_orchestrator import review_store
 from codex_orchestrator.coordination_store import design_fingerprint, stage_accepted
 from codex_orchestrator.design import check_source
 from codex_orchestrator.design_models import DesignSession
-from codex_orchestrator.run_store import latest_runs, run_directory
 from codex_orchestrator.session import SessionData
+from codex_orchestrator.stage_verification import check_stage_verification
 from codex_orchestrator.worker_models import artifact_digest
-from codex_orchestrator.worker_runtime import check_worker_verification
 
 
 class StageBranch(SessionData):
@@ -162,7 +161,8 @@ def prerequisites(state, path, stage_id):
 
 def require_branch(state, path, stage_id):
     settings, revision = current(state, path)
-    if settings is None:  # Existing projects migrate explicitly; no invented branch history.
+    if settings is None:
+        require_setup(state, path)
         return
     prerequisites(state, path, stage_id)
     item = revision.stages.get(stage_id)
@@ -180,6 +180,22 @@ def require_branch(state, path, stage_id):
         )
     if not ancestor(project, item.start_commit, "HEAD"):
         raise ValueError("Stage branch history changed; inspect it in your terminal.")
+
+
+def require_setup(state, path):
+    """New managed cycles must not create work outside their stage branches."""
+    from codex_orchestrator.cycle_store import find_history
+
+    found = find_history(Path(state.source_file))
+    if (
+        found
+        and (
+            not found[1].cycles[-1].imported
+            or any(r.origin == "correction" for r in state.revisions)
+        )
+        and load(path) is None
+    ):
+        raise ValueError("Enable stage branches before running this managed cycle.")
 
 
 def prepare(path, stage_id):
@@ -265,12 +281,7 @@ def record_merge(path, stage_id):
             raise ValueError(
                 "Switch to this stage branch or its integration base before recording merge."
             )
-        latest = latest_runs(path, len(state.revisions))
-        for task in state.revisions[-1].design.tasks:
-            if task.stage_id == stage_id:
-                check_worker_verification(
-                    latest[task.id], project, run_directory(path) / latest[task.id].id
-                )
+        check_stage_verification(state, path, stage_id)
         if not ancestor(project, receipt.commit, f"refs/heads/{settings.base}"):
             raise ValueError(
                 "The approved commit is not merged into the local base. "

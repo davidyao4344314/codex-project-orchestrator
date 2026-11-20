@@ -31,6 +31,7 @@ class Run(SessionData):
     worker_profile: str | None = None
     worker_result_digest: str | None = None
     worker_spec_digest: str | None = None
+    workspace_before_digest: str | None = None
     workspace_after_digest: str | None = None
     context_digest: str | None = None
     handoff_summary: str | None = None

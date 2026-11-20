@@ -141,6 +141,8 @@ def run_review(
             "not the implementation worker. Inspect actual source, requirements, interfaces, "
             "scope, correctness, regressions and test adequacy; do not trust pass claims alone. "
             "Review selected files in the context of the whole stage. "
+            "For ordered tasks sharing a file, earlier worker reports describe intermediate "
+            "states. Judge the final combined source and whether regression checks cover it. "
             "Use read-only operations only. Do not edit, commit, push, deploy, spawn workers "
             "or use external integrations. "
             + KEEP_SECRETS_PRIVATE
