@@ -18,13 +18,16 @@ def current_rounds(state, path):
     found = find_history(Path(state.source_file))
     if not found:
         return []
-    cycle = found[1].cycles[-1]
-    if cycle.session_name != Path(state.source_file).name:
+    name = Path(state.source_file).name
+    cycle = next((c for c in found[1].cycles if name in c.session_names()), None)
+    if cycle is None:
         return []
     return [
         r
         for r in cycle.feedback_rounds
-        if r.revision == len(state.revisions) and r.design_digest == design_fingerprint(state)
+        if r.revision == len(state.revisions)
+        and r.design_digest == design_fingerprint(state)
+        and (r.session_name is None or r.session_name == name)
     ]
 
 
@@ -95,13 +98,22 @@ def improve(source: Path, task_id: str, note: str):
         task = next((t for t in design.tasks if t.id == task_id), None)
         if task is None or not task.owned_paths:
             raise ValueError("Choose an existing implementation task with exact owned files.")
-        _unpublished(state, path, task.stage_id)
         latest = latest_runs(path, len(state.revisions))
         old = latest.get(task_id)
         if not old or old.status not in {"completed", "failed", "blocked", "stopped"}:
             raise ValueError("Test or run this assignment before recording improvement feedback.")
         if any(r.status in {"starting", "running"} for r in runs(path)):
             raise ValueError("Wait for unfinished workers before recording feedback.")
+        settings, revision = stage_branches.current(state, path)
+        if (
+            settings
+            and task.stage_id in revision.stages
+            and revision.stages[task.stage_id].merged_commit
+        ):
+            from codex_orchestrator.correction_delivery import create_correction
+
+            return create_correction(source, state, path, task, old, note, file, history, cycle)
+        _unpublished(state, path, task.stage_id)
         # Do not invalidate downstream checks implicitly. Existing dependent runs need
         # a wider approved scope, even if the target worker owns different files.
         predecessors = ancestors(task_graph(design))
@@ -132,6 +144,7 @@ def improve(source: Path, task_id: str, note: str):
             workstream=str(task.workstream),
             owned_paths=task.owned_paths,
             prior_run_id=old.id,
+            session_name=source.name,
         )
         cycle.feedback_enabled = True
         cycle.feedback_rounds.append(record)
@@ -185,6 +198,7 @@ def accept_goal(source: Path, stage_id: str, note: str):
             stage_id=stage_id,
             note=note,
             evidence_digest=git_service.evidence_digest(state, path, stage_id),
+            session_name=source.name,
         )
         cycle.feedback_enabled = True
         cycle.feedback_rounds.append(record)

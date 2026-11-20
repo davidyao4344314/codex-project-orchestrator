@@ -28,6 +28,14 @@ class FeedbackRound(SessionData):
     owned_paths: list[str] = Field(default_factory=list)
     prior_run_id: str | None = None
     evidence_digest: str | None = None
+    session_name: str | None = None
+
+
+class ArchivedDelivery(SessionData):
+    session_name: str
+    design_digest: str
+    archived_at: datetime = Field(default_factory=now)
+    merged_stages: dict[str, str]
 
 
 class Cycle(SessionData):
@@ -43,13 +51,19 @@ class Cycle(SessionData):
     commits: list[str] = Field(default_factory=list)
     feedback_enabled: bool = False
     feedback_rounds: list[FeedbackRound] = Field(default_factory=list)
+    archived_deliveries: list[ArchivedDelivery] = Field(default_factory=list)
+
+    def session_names(self) -> set[str]:
+        return {self.session_name, *(d.session_name for d in self.archived_deliveries)}
 
     @model_validator(mode="after")
     def valid_cycle(self) -> Self:
-        if Path(self.session_name).name != self.session_name or not self.session_name.endswith(
-            ".json"
+        if any(
+            Path(name).name != name or not name.endswith(".json") for name in self.session_names()
         ):
             raise ValueError("Cycle session must be a local JSON filename.")
+        if len(self.session_names()) != 1 + len(self.archived_deliveries):
+            raise ValueError("Delivery session names must be unique.")
         if not self.goal.strip():
             raise ValueError("Cycle needs a goal.")
         if (self.status == "completed") != (self.completed_at is not None):
@@ -68,7 +82,9 @@ class ProjectHistory(SessionData):
             range(1, len(self.cycles) + 1)
         ):
             raise ValueError("Cycle numbers must be consecutive.")
-        if len({c.session_name for c in self.cycles}) != len(self.cycles):
+        if len(set().union(*(c.session_names() for c in self.cycles))) != sum(
+            len(c.session_names()) for c in self.cycles
+        ):
             raise ValueError("Cycle sessions must be unique.")
         if any(c.status != "completed" for c in self.cycles[:-1]):
             raise ValueError("Only the newest cycle may be active.")
@@ -88,7 +104,7 @@ def find_history(source: Path) -> tuple[Path, ProjectHistory] | None:
         (
             (file, history)
             for file, history in histories(source.parent)
-            if any(c.session_name == source.name for c in history.cycles)
+            if any(source.name in c.session_names() for c in history.cycles)
         ),
         None,
     )

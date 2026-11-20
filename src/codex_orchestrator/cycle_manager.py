@@ -114,7 +114,9 @@ def complete(source: Path, changes: str, feedback: str) -> Cycle:
         stage_branches.clean(project)
         if git_service.git(project, "symbolic-ref", "--short", "HEAD") != settings.base:
             raise ValueError("Switch to the integrated base before finishing the cycle.")
-        commits = []
+        from codex_orchestrator.correction_delivery import archived_commits
+
+        commits = archived_commits(cycle, source.parent, project, settings.base)
         for stage in state.revisions[-1].design.stages:
             item = revision.stages.get(stage.id)
             if (

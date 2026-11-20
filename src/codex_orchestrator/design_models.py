@@ -124,7 +124,9 @@ class DesignReply(SessionData):
 
 
 class DesignRevision(SessionData):
-    origin: Literal["architect", "model_allocation", "assignment", "team_allocation"] = "architect"
+    origin: Literal[
+        "architect", "model_allocation", "assignment", "team_allocation", "correction"
+    ] = "architect"
     design: TechnicalDesign
     requested_model: Text | None = None
     reported_model: Text | None = None

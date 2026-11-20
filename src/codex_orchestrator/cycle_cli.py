@@ -159,10 +159,7 @@ def feedback(
             task = task or typer.prompt("Affected task ID")
             record = cycle_feedback.improve(source, task, note)
             typer.echo(record.model_dump_json(indent=2))
-            typer.echo(
-                f"Retry only this task: orchestrator cycle deliver '{source}' retry "
-                f"--stage {record.stage_id}"
-            )
+            show_correction(source, record)
         elif kind == "goal-achieved":
             stage = stage or typer.prompt("Final stage ID")
             record = cycle_feedback.accept_goal(source, stage, note)
@@ -170,6 +167,19 @@ def feedback(
             typer.echo("Run independent review, then commit and approve the push.")
     except (OSError, ValueError, CodexError) as exc:
         fail(exc)
+
+
+def show_correction(source, record):
+    current = source.parent / (record.session_name or source.name)
+    if current != source:
+        typer.echo(f"Scoped correction session (same cycle): {current}")
+        typer.echo(f"Review its design: orchestrator design '{current}'")
+        typer.echo(f"Enable branches: orchestrator cycle deliver '{current}' enable --base <base>")
+        typer.echo(f"Approve and prepare stage: {record.stage_id}")
+    typer.echo(
+        f"Retry only this task: orchestrator cycle deliver '{current}' retry "
+        f"--stage {record.stage_id}"
+    )
 
 
 @app.command()
@@ -209,7 +219,16 @@ def deliver(
                 execution.stop_run(run)
                 while execution.is_busy(project):
                     time.sleep(0.5)
-            typer.echo(Run.load(folder / "run.json").status)
+            finished = Run.load(folder / "run.json")
+            typer.echo(f"Run status: {finished.status}")
+            if finished.status != "completed":
+                from codex_orchestrator.recovery_brief import clipped
+
+                if finished.error:
+                    typer.echo(f"Error: {clipped(finished.error)}", err=True)
+                typer.echo(f"Inspect evidence: {folder}", err=True)
+                typer.echo("Resolve the problem and explicitly retry the task.", err=True)
+                raise typer.Exit(130 if finished.status == "stopped" else 1)
         elif action == DeliveryAction.verify:
             from codex_orchestrator.recovery_brief import safe_folder
 
@@ -234,7 +253,7 @@ def deliver(
                     source, record.task_id, typer.prompt("Describe the correction")
                 )
                 typer.echo(feedback_record.model_dump_json(indent=2))
-                typer.echo("Retry the selected task before accepting verification.")
+                show_correction(source, feedback_record)
                 return
             if typer.confirm("Have you verified the required automated and human checks?"):
                 execution.verify_run(path, run_id)
