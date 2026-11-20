@@ -102,7 +102,8 @@ orchestrator environment and setting `SESSION` to the saved path again. Then run
 ### 5. Deliver a stage and test the feedback loop
 
 With a clean base branch and an approved design, enable stage branches once and pick the
-first delivery stage from the design:
+first delivery stage from the design. New cycles cannot run before a branch is both
+enabled and prepared.
 
 ```sh
 orchestrator cycle deliver "$SESSION" enable --base main
@@ -120,11 +121,15 @@ RUN_ID="ACTUAL_RUN_ID"
 orchestrator cycle deliver "$SESSION" verify --run-id "$RUN_ID"
 ```
 
+A failed or blocked run prints its status, diagnostic and evidence folder and returns exit
+code 1 (a stopped run returns 130). Inspect it, then explicitly retry; it will not automatically
+advance the stage.
+
 Choose improvement when the terminal asks if you want a correction, or record it explicitly
 with `orchestrator cycle feedback "$SESSION" --kind improve --task ACTUAL_TASK_ID`.
-For a frontend correction, choose the frontend task before its stage is committed; a useful
+For a frontend correction, choose the frontend task; a useful
 test is "Make the empty-state text clearer." Check that the branch, task, workstream and
-owned files match the approved assignment. Retry:
+owned files match the approved assignment. If the stage is still uncommitted, retry:
 
 ```sh
 orchestrator cycle deliver "$SESSION" retry --stage "$STAGE"
@@ -291,8 +296,31 @@ feedback check. Verify the new attempt and accept the combined stage again. Othe
 verified tasks are preserved; previously executed dependent tasks or overlapping audited files
 block the narrow retry. Do not select a frontend assignment for a database contract change.
 Wider changes require an explicit design scope decision; this version does not automatically
-expand ownership, create new tasks or migrate previous acceptance across a redesigned plan.
-Feedback corrections must be recorded before the affected stage has a commit receipt.
+expand ownership or migrate previous acceptance across a redesigned plan.
+
+If the original task's stage has already merged, the same feedback command creates a
+scoped correction delivery **inside the current cycle**. It keeps old commits and evidence,
+retains unfinished stages, and adds read-only regression checks for affected merged tasks.
+No model runs when recording feedback. Copy the new session filename and correction stage
+ID printed by the command:
+
+```sh
+SESSION="ACTUAL_CORRECTION_SESSION_PATH"
+STAGE="ACTUAL_CORRECTION_STAGE_ID"
+orchestrator design "$SESSION"
+orchestrator cycle deliver "$SESSION" enable --base main
+orchestrator cycle deliver "$SESSION" approve --stage "$STAGE"
+orchestrator cycle deliver "$SESSION" prepare --stage "$STAGE"
+orchestrator cycle deliver "$SESSION" retry --stage "$STAGE"
+```
+
+Verify the corrected run and dispatch any remaining read-only regression tasks using
+`run`. Accept the stage only after all checks, then use normal review, commit, push
+confirmation and recorded merge. Continue unfinished stages. A previous session filename
+still works with `cycle history` and `cycle status`, which point to the active round.
+Do not rewrite a committed but unmerged stage; finish its merge first. Dirty files,
+missing archived context, or a correction to a task no longer in the current scoped
+design require an explicit scope decision rather than silently discarding work.
 
 When all other stages have recorded merges and the final stage's checks pass:
 

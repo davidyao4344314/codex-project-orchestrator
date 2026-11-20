@@ -61,9 +61,12 @@ fixtures for previous formats. Checkpoints use atomic replacement, not in-place 
 
 Model calls and execution require explicit user actions. Browser refreshes and polling must
 not trigger inference. Run completion, user verification acceptance, and merge acceptance
-are separate concepts. Current verification is user-attested and tied to a task attempt and
-design revision; it is not bound to a Git commit or a complete filesystem snapshot. Later
-file edits or native Codex follow-ups therefore still require human re-verification.
+are separate concepts. Task verification is tied to the latest attempt and audited source
+hashes, not a complete filesystem snapshot. Stage verification composes the ordered before
+and after snapshots, accepts a successor's edit only within its approved ownership and
+dependencies, and compares the last observed state with the current source. A new worker's
+before/spec/after hashes are included in publication evidence. Intervening external edits
+and stale final outputs require re-verification.
 
 ## Remaining boundaries
 
@@ -316,6 +319,14 @@ contains the feedback record and WorkerSpec adds a focused check and human accep
 Original checks still apply; ownership and the prior design remain unchanged. Unrelated task
 evidence remains intact. Already-executed dependency or audited-path overlaps block the narrow
 retry and require a broader approved plan rather than implicit invalidation.
+
+For a merged assignment, `correction_delivery` creates an independent reviewable delivery
+checkpoint within the same cycle. It archives merged stage evidence and ancestry, preserves
+the target's agent/model/file ownership, retains unfinished tasks and creates read-only
+regression assignments for affected merged consumers. History resolves both old and current
+session names, but only the current delivery can dispatch. Dirty or committed-unmerged work
+blocks the transition. Archive evidence is checked again at cycle completion. New cycles and
+correction delivery rounds require explicit branch setup before any worker can run.
 
 Goal acceptance binds the final stage evidence after other stages have recorded merges.
 It changes the review fingerprint and is sent to the independent reviewer. Final commit

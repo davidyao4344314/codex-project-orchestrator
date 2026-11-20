@@ -26,5 +26,19 @@ and stage/task IDs displayed in the saved design.
 7. Run `orchestrator cycle history SESSION` to inspect feedback rounds, outcome, timestamps and
    commit SHAs. Starting the next cycle must retain this history and ask for a new goal.
 
+## Four delivery regression checks
+
+| Check | Action | Expected result |
+| --- | --- | --- |
+| Branch gate | In a new cycle, approve the design/stage but try `cycle deliver SESSION run --stage STAGE` before enable/prepare. | Nonzero exit and branch-setup guidance; no worker runs on main. After enable/prepare, status is ready. |
+| Merged feedback | Merge an implementation stage, then request an improvement on its task during later testing. | New correction session and stage ID, same cycle number; archived commits stay unchanged. Approve the scoped design, enable/approve/prepare, then retry. Only the requested task writes files; affected merged tasks are read-only regression checks. |
+| Shared file | Plan two dependent, ordered assignments owning the same file; run and verify both before accepting the stage. | Combined stage acceptance/review can proceed against the final file. Editing that file manually between attempts or after verification blocks acceptance/publication. |
+| Failure | In a disposable task with a reproducible failed check, dispatch or retry. Run `echo $?` immediately afterward. | Status failed/blocked, diagnostic and evidence folder, exit code 1 (130 if stopped). The next stage is blocked until the task passes and is verified. |
+
+Use the [README terminal walkthrough](../README.md) for the actual setup and end-to-end
+commands. The merged-feedback command prints the new session path and correction stage ID
+to use from that point onward. Check `cycle history` through the original session too;
+the final cycle should contain both original and corrective commit SHAs.
+
 Automated tests use fake workers, fake reviewer calls and mocked publication. Real model
 behavior, manual application checks and Git hosting integration are still user acceptance tasks.
