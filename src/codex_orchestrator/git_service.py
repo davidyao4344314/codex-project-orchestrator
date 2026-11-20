@@ -136,6 +136,9 @@ def connect(project: Path, url: str):
 
 def _approved(path: Path, stage_id: str):
     state = DesignSession.load(path)
+    from codex_orchestrator.cycle_manager import require_active
+
+    require_active(Path(state.source_file))
     check_source(state)
     if state.phase != "approved" or not stage_accepted(state, path, stage_id):
         raise ValueError("Accept this delivery stage's verification before committing its work.")

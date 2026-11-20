@@ -49,6 +49,9 @@ def is_busy(project):
 
 
 def start_run(state, path, task, context=None):
+    from codex_orchestrator.cycle_manager import require_active
+
+    require_active(Path(state.source_file))
     check_source(state)
     state.require_current(path)
     validate_design(state.revisions[-1].design, state.source.brief, Path(state.project))
@@ -97,6 +100,7 @@ def start_run(state, path, task, context=None):
             # Caller manifests are previews; dispatch rebuilds under the writer lock.
             check_source(state)
             state.require_current(path)
+            require_active(Path(state.source_file))
             if any(r.status in {"starting", "running"} for r in runs(path)):
                 raise ValueError("An active or unfinished run exists. Inspect or recover it first.")
             require_branch(state, path, task.stage_id)
