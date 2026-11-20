@@ -22,6 +22,7 @@ class Run(SessionData):
     worker_pid: int | None = None
     worker_started: str | None = None
     recovery_from: str | None = None
+    feedback_id: str | None = None
     model: str | None = None
     prompt: str
     error: str | None = None

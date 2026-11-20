@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Self
+from uuid import uuid4
 
 from pydantic import Field, model_validator
 
@@ -11,6 +12,22 @@ from codex_orchestrator.session import SessionData
 
 def now() -> datetime:
     return datetime.now(UTC)
+
+
+class FeedbackRound(SessionData):
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    recorded_at: datetime = Field(default_factory=now)
+    kind: Literal["improve", "goal_achieved"]
+    revision: int = Field(ge=1)
+    design_digest: str
+    stage_id: str
+    note: str
+    task_id: str | None = None
+    agent_id: str | None = None
+    workstream: str | None = None
+    owned_paths: list[str] = Field(default_factory=list)
+    prior_run_id: str | None = None
+    evidence_digest: str | None = None
 
 
 class Cycle(SessionData):
@@ -24,6 +41,8 @@ class Cycle(SessionData):
     changes: str = ""
     feedback: str = ""
     commits: list[str] = Field(default_factory=list)
+    feedback_enabled: bool = False
+    feedback_rounds: list[FeedbackRound] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def valid_cycle(self) -> Self:
