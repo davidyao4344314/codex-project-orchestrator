@@ -69,7 +69,13 @@ def stage_schedule(path: Path, stage_id: str) -> StageSchedule:
     if stage_id not in {s.id for s in design.stages}:
         raise ValueError("Unknown delivery stage.")
     latest = stage_branches.valid_runs(state, path, latest_runs(path, len(state.revisions)))
-    verified = {i for i, r in latest.items() if r.status == "completed" and r.verified}
+    from codex_orchestrator.cycle_feedback import needs_retry
+
+    verified = {
+        i
+        for i, r in latest.items()
+        if r.status == "completed" and r.verified and not needs_retry(state, path, i, r)
+    }
     graph = task_graph(design)
     tasks = []
     for task in design.tasks:
@@ -78,6 +84,8 @@ def stage_schedule(path: Path, stage_id: str) -> StageSchedule:
         run = latest.get(task.id)
         if run and run.status in {"starting", "running"}:
             status = "running"
+        elif needs_retry(state, path, task.id, run):
+            status = "blocked"
         elif run and run.status in {"failed", "stopped", "blocked"}:
             status = run.status
         elif run and run.status == "completed":
@@ -114,6 +122,8 @@ def stage_schedule(path: Path, stage_id: str) -> StageSchedule:
     if stage_accepted(state, path, stage_id):
         return result("accepted")
     if any(t.status in {"failed", "stopped", "blocked"} for t in tasks):
+        if any(needs_retry(state, path, t.id, latest.get(t.id)) for t in tasks):
+            return result("blocked", "Targeted user feedback is pending; retry the selected task.")
         return result(
             "blocked",
             "A task failed, blocked, or stopped. Inspect its output and explicitly retry it.",
@@ -144,6 +154,11 @@ def run_next(path: Path, stage_id: str, *, retry=False) -> Run:
     state = _current(path)
     schedule = stage_schedule(path, stage_id)
     candidates = [t for t in schedule.tasks if t.status in {"failed", "stopped", "blocked"}]
+    from codex_orchestrator.cycle_feedback import pending
+
+    outstanding = pending(state, path)
+    if outstanding:
+        candidates = [t for t in candidates if t.id in outstanding]
     if retry and schedule.status == "blocked" and candidates:
         selected = candidates[0]
     elif not retry and schedule.status == "ready":

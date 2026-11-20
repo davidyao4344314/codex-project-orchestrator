@@ -44,6 +44,8 @@ def create_branch(project: Path, name: str) -> None:
 
 def review_payload(path: Path, reviewed: git.GitPreview) -> str:
     state = DesignSession.load(path)
+    from codex_orchestrator.cycle_feedback import current_rounds
+
     project = Path(state.project).resolve()
     stage = next(s for s in state.revisions[-1].design.stages if s.id == reviewed.stage_id)
     latest = latest_runs(path, len(state.revisions))
@@ -81,6 +83,11 @@ def review_payload(path: Path, reviewed: git.GitPreview) -> str:
     )
     payload = json.dumps(
         dict(
+            feedback=[
+                r.model_dump(mode="json")
+                for r in current_rounds(state, path)
+                if r.stage_id == reviewed.stage_id
+            ],
             stage=stage.model_dump(),
             requirements=state.source.brief.model_dump(),
             assignments=assignments,

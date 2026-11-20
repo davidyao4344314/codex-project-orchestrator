@@ -65,7 +65,9 @@ def create_project(project: Path, goal: str, directory: Path) -> Path:
         ProjectHistory(
             project=str(project),
             name=project.name,
-            cycles=[Cycle(number=1, session_name=path.name, goal=goal.strip())],
+            cycles=[
+                Cycle(number=1, session_name=path.name, goal=goal.strip(), feedback_enabled=True)
+            ],
         ).save(history_path(path), new=True)
         return path
 
@@ -124,6 +126,20 @@ def complete(source: Path, changes: str, feedback: str) -> Cycle:
             ):
                 raise ValueError(f"Finish and record the verified merge for stage {stage.id}.")
             commits.append(item.merged_commit)
+        if cycle.feedback_enabled:
+            from codex_orchestrator.cycle_feedback import decision
+
+            records = [
+                decision(state, design_path, s.id) for s in state.revisions[-1].design.stages
+            ]
+            final = next((r for r in records if r), None)
+            if final is None:
+                raise ValueError("Record goal-achieved feedback before the final commit.")
+            sha = revision.stages[final.stage_id].merged_commit
+            message = git_service.git(project, "show", "-s", "--format=%B", sha)
+            if f"Acceptance: {final.id}" not in message or f"Feedback: {final.note}" not in message:
+                raise ValueError("Final merge is missing the recorded goal feedback commit.")
+            feedback = final.note
         cycle.status = "completed"
         cycle.completed_at = now()
         cycle.changes, cycle.feedback = changes.strip(), feedback.strip()
@@ -183,7 +199,12 @@ def start_next(source: Path, goal: str) -> Path:
             previous_cycle_context=context,
         )
         history.cycles.append(
-            Cycle(number=previous.number + 1, session_name=next_path.name, goal=goal.strip())
+            Cycle(
+                number=previous.number + 1,
+                session_name=next_path.name,
+                goal=goal.strip(),
+                feedback_enabled=True,
+            )
         )
         history.save(file)
         return next_path

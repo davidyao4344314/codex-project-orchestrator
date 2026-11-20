@@ -221,9 +221,15 @@ def _preview(path: Path, stage_id: str, selected: list[str] | None = None) -> Gi
     if sensitive_text(diff):
         raise ValueError("Recognizable credentials found in the diff; review in your terminal.")
     attempts = evidence_digest(state, path, stage_id)
+    from codex_orchestrator.cycle_feedback import decision
+
+    feedback = decision(state, path, stage_id)
+    identity = [design_fingerprint(state), head, branch, remote, observed, diff, attempts]
+    if feedback:
+        identity.append(feedback.model_dump(mode="json"))
     fingerprint = hashlib.sha256(
         json.dumps(
-            [design_fingerprint(state), head, branch, remote, observed, diff, attempts],
+            identity,
             sort_keys=True,
         ).encode()
     ).hexdigest()
@@ -291,15 +297,24 @@ def _commit(
         raise ValueError("Files or Git settings changed. Build a new preview.")
     approval = reviews.require_approval(path, approval_id, reviewed.fingerprint)
     reviewer = reviews.require_reviewer(path, reviewed.stage_id, reviewed.fingerprint)
+    from codex_orchestrator.cycle_feedback import commit_message
+
+    message, final_feedback = commit_message(
+        DesignSession.load(path), path, reviewed.stage_id, message.strip()
+    )
     expected_tree = git(project, "write-tree")
     if reviewed.paths:
         git(project, "add", "--", *reviewed.paths)
         expected_tree = git(project, "write-tree")
         git(project, "commit", "-m", message.strip(), "--only", "--", *reviewed.paths)
+    elif final_feedback:
+        git(project, "commit", "--allow-empty", "-m", message)
     if git(project, "rev-parse", "HEAD^{tree}") != expected_tree:
         raise ValueError(
             "Commit hooks changed the approved tree. Inspect the local commit before publishing."
         )
+    if final_feedback and message not in git(project, "show", "-s", "--format=%B", "HEAD"):
+        raise ValueError("The commit message changed; inspect the local commit before publishing.")
     record = GitPublication(
         evidence_digest=evidence_digest(DesignSession.load(path), path, reviewed.stage_id),
         reviewer_id=reviewer.id,

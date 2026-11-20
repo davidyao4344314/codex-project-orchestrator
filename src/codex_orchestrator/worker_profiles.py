@@ -30,6 +30,22 @@ PROFILE_INSTRUCTIONS = {
 
 def worker_spec(package) -> WorkerSpec:
     task = package.metadata["assignment"]
+    feedback = package.metadata.get("user_feedback")
+    checks = [
+        RequiredCheck(id=f"C{i}", description=check)
+        for i, check in enumerate(task["automated_checks"], start=1)
+    ]
+    human_checks = list(task["human_checks"])
+    if feedback:
+        checks.append(
+            RequiredCheck(
+                id="FEEDBACK",
+                description=(
+                    "Run a focused automated check of the correction: " + feedback["note"]
+                ),
+            )
+        )
+        human_checks.append("Confirm the correction satisfies your feedback: " + feedback["note"])
     # Empty ownership is an explicit read-only assignment, regardless of its domain label.
     profile = "verification" if not task["owned_paths"] else task["workstream"]
     if profile not in PROFILE_INSTRUCTIONS:
@@ -44,12 +60,9 @@ def worker_spec(package) -> WorkerSpec:
         owned_paths=task["owned_paths"],
         read_only=profile == "verification",
         instructions=PROFILE_INSTRUCTIONS[profile],
-        checks=[
-            RequiredCheck(id=f"C{i}", description=check)
-            for i, check in enumerate(task["automated_checks"], start=1)
-        ],
+        checks=checks,
         acceptance_criteria=task["acceptance_criteria"],
-        human_checks=task["human_checks"],
+        human_checks=human_checks,
     )
 
 

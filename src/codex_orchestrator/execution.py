@@ -63,12 +63,13 @@ def start_run(state, path, task, context=None):
     review = current_review(state, task.stage_id)
     if not review or not review.approved:
         raise ValueError("Approve this stage's plan before starting implementation.")
+    from codex_orchestrator.cycle_feedback import needs_retry
     from codex_orchestrator.stage_branches import require_branch, valid_runs
 
     previous = {
         task_id
         for task_id, run in valid_runs(state, path, latest_runs(path, len(state.revisions))).items()
-        if run.verified and run.status == "completed"
+        if run.verified and run.status == "completed" and not needs_retry(state, path, task_id, run)
     }
     dependencies = task_graph(state.revisions[-1].design)[task.id]
     if not set(dependencies) <= previous:
@@ -104,6 +105,18 @@ def start_run(state, path, task, context=None):
             if any(r.status in {"starting", "running"} for r in runs(path)):
                 raise ValueError("An active or unfinished run exists. Inspect or recover it first.")
             require_branch(state, path, task.stage_id)
+            from codex_orchestrator.cycle_feedback import pending, task_feedback
+
+            outstanding = pending(state, path)
+            if outstanding and task.id not in outstanding:
+                raise ValueError("Run the selected feedback task before deploying other agents.")
+            feedback = task_feedback(state, path, task.id)
+            if feedback and (
+                task.agent_id != feedback.agent_id
+                or str(task.workstream) != feedback.workstream
+                or task.owned_paths != feedback.owned_paths
+            ):
+                raise ValueError("The feedback assignment changed; approve a new scope first.")
             from codex_orchestrator.stage_branches import load as load_branches
 
             if load_branches(path) is not None:
@@ -111,6 +124,11 @@ def start_run(state, path, task, context=None):
 
                 run.branch = git(Path(state.project), "symbolic-ref", "--short", "HEAD")
             package = build_context(state, task, path)
+            if feedback:
+                run.feedback_id = feedback.id
+                package.metadata["user_feedback"] = feedback.model_dump(mode="json")
+                if package.size_bytes() > package.limits.max_package_bytes:
+                    raise ValueError("Feedback context exceeds the task context budget.")
             package.require_ready()
             run.context_digest = package.digest()
             folder.mkdir(parents=True)
@@ -325,6 +343,10 @@ def verify_run(path, run_id):
     if run.status != "completed":
         raise ValueError("Only completed runs can be accepted after verification.")
     state = DesignSession.load(path)
+    from codex_orchestrator.cycle_feedback import needs_retry
+
+    if needs_retry(state, path, run.task_id, run):
+        raise ValueError("Run the targeted correction before accepting verification.")
     check_source(state)
     if (
         run.revision != len(state.revisions)
