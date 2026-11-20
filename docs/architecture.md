@@ -305,3 +305,22 @@ The next session carries bounded prior-cycle context as reference data for intak
 The user supplies a fresh goal; existing approved scope and review gates continue to apply.
 The initial interface is `cycle_cli`, with no Streamlit changes. Performance evaluation,
 longer-term memory selection and automatic workflow optimization are later work.
+
+## Feedback rounds within a cycle
+
+`cycle_feedback` records the two user decisions against the current design fingerprint.
+An improve decision binds a tested task, prior attempt, agent, workstream and exact owned files.
+The coordinator blocks old verification and gives the selected task priority; execution cannot
+dispatch another assignment while the correction is outstanding. The new context package
+contains the feedback record and WorkerSpec adds a focused check and human acceptance item.
+Original checks still apply; ownership and the prior design remain unchanged. Unrelated task
+evidence remains intact. Already-executed dependency or audited-path overlaps block the narrow
+retry and require a broader approved plan rather than implicit invalidation.
+
+Goal acceptance binds the final stage evidence after other stages have recorded merges.
+It changes the review fingerprint and is sent to the independent reviewer. Final commit
+preparation appends the note, cycle number, timestamp and acceptance ID, even for a no-change
+verification stage. Completion checks the merged commit contains the acceptance record.
+No review, retry or publication runs merely because feedback is recorded. Legacy cycles retain
+their original completion behavior until feedback rounds are enabled; new cycles enable them.
+Feedback rounds are local immutable history entries, not a new approval or push authority.

@@ -8,6 +8,7 @@ import typer
 
 from codex_orchestrator import (
     coordinator,
+    cycle_feedback,
     cycle_manager,
     execution,
     git_service,
@@ -19,7 +20,7 @@ from codex_orchestrator import (
 from codex_orchestrator.codex import CodexError
 from codex_orchestrator.cycle_store import find_history
 from codex_orchestrator.design_models import DesignSession
-from codex_orchestrator.run_store import Run, run_directory
+from codex_orchestrator.run_store import Run, latest_runs, run_directory
 from codex_orchestrator.stage_review import review_stage
 
 app = typer.Typer(no_args_is_help=True)
@@ -89,7 +90,16 @@ def finish(source: Path, changes: str | None = None, feedback: str | None = None
     """Record delivered changes and feedback after all stage merges."""
     try:
         changes = changes if changes is not None else typer.prompt("What changed in this cycle?")
-        feedback = feedback if feedback is not None else typer.prompt("Your feedback on this cycle")
+        _, _, cycle = cycle_manager.active_cycle(source.resolve())
+        if cycle.feedback_enabled:
+            accepted = next(
+                (r for r in reversed(cycle.feedback_rounds) if r.kind == "goal_achieved"), None
+            )
+            feedback = accepted.note if accepted else ""
+        else:
+            feedback = (
+                feedback if feedback is not None else typer.prompt("Your feedback on this cycle")
+            )
         cycle = cycle_manager.complete(source.resolve(), changes, feedback)
         typer.echo(f"Cycle {cycle.number:03d} completed at {cycle.completed_at.isoformat()}.")
         typer.echo("Use cycle next when you have another idea.")
@@ -128,6 +138,38 @@ class DeliveryAction(StrEnum):
     refresh = "refresh"
     merge = "record-merge"
     recover = "recover"
+
+
+@app.command()
+def feedback(
+    source: Path,
+    kind: str = typer.Option("", help="improve or goal-achieved"),
+    task: str = "",
+    stage: str = "",
+    note: str = "",
+):
+    """Record a correction or final acceptance without starting a model."""
+    try:
+        source = source.resolve()
+        kind = kind or typer.prompt("Feedback type (improve / goal-achieved)")
+        if kind not in {"improve", "goal-achieved"}:
+            raise ValueError("Choose improve or goal-achieved.")
+        note = note or typer.prompt("What should change, or what worked?")
+        if kind == "improve":
+            task = task or typer.prompt("Affected task ID")
+            record = cycle_feedback.improve(source, task, note)
+            typer.echo(record.model_dump_json(indent=2))
+            typer.echo(
+                f"Retry only this task: orchestrator cycle deliver '{source}' retry "
+                f"--stage {record.stage_id}"
+            )
+        elif kind == "goal-achieved":
+            stage = stage or typer.prompt("Final stage ID")
+            record = cycle_feedback.accept_goal(source, stage, note)
+            typer.echo(record.model_dump_json(indent=2))
+            typer.echo("Run independent review, then commit and approve the push.")
+    except (OSError, ValueError, CodexError) as exc:
+        fail(exc)
 
 
 @app.command()
@@ -173,10 +215,39 @@ def deliver(
 
             folder = safe_folder(path, run_id)
             typer.echo(f"Inspect evidence at {folder}")
+            record = Run.load(folder / "run.json")
+            current = latest_runs(path, len(state.revisions)).get(record.task_id)
+            implementation = any(
+                t.id == record.task_id and t.owned_paths for t in state.revisions[-1].design.tasks
+            )
+            if (
+                find_history(source)
+                and implementation
+                and current
+                and current.id == record.id
+                and typer.confirm(
+                    "Do you want to request an improvement to this task before verification?",
+                    default=False,
+                )
+            ):
+                feedback_record = cycle_feedback.improve(
+                    source, record.task_id, typer.prompt("Describe the correction")
+                )
+                typer.echo(feedback_record.model_dump_json(indent=2))
+                typer.echo("Retry the selected task before accepting verification.")
+                return
             if typer.confirm("Have you verified the required automated and human checks?"):
                 execution.verify_run(path, run_id)
         elif action == DeliveryAction.accept:
             coordinator.accept_stage(path, stage, evidence or typer.prompt("Stage test evidence"))
+            found = find_history(source)
+            if (
+                found
+                and found[1].cycles[-1].feedback_enabled
+                and cycle_feedback.final_stage(state, path, stage)
+            ):
+                typer.echo("Final stage checks accepted. Record improve or goal-achieved feedback.")
+                typer.echo(f"Next: orchestrator cycle feedback '{source}'")
         elif action == DeliveryAction.pause:
             coordinator.pause(path)
         elif action == DeliveryAction.resume:

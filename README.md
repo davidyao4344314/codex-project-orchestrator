@@ -12,7 +12,13 @@ flowchart TD
     Idea[New cycle: ask for goal] --> Plan[Clarify requirements and approve technical design]
     Plan --> Stage[Prepare stage branch and implement]
     Stage --> Tests[Verify task and accept stage tests]
-    Tests --> Review[Independent AI review]
+    Tests --> FeedbackChoice{Your feedback}
+    FeedbackChoice -->|Improve| Target[Retry selected affected assignment]
+    Target --> Tests
+    FeedbackChoice -->|Current stage accepted| Final{Final delivery stage?}
+    Final -->|No| Review[Independent AI review]
+    Final -->|Yes| Goal[Record goal-achieved feedback]
+    Goal --> Review
     Review -->|Changes requested| Stage
     Review -->|Approved| Commit[Local commit]
     Commit --> Permission{User permits push?}
@@ -20,7 +26,7 @@ flowchart TD
     Permission -->|Not yet| Commit
     Merge --> More{More stages?}
     More -->|Yes| Stage
-    More -->|No| Feedback[Record changes, timestamps, commits and feedback]
+    More -->|No| Feedback[Finish cycle with recorded goal acceptance]
     Feedback --> Again{Another idea?}
     Again -->|Yes| Idea
     Again -->|Later| Pause[Save history and return later]
@@ -57,7 +63,9 @@ orchestrator cycle deliver SESSION commit --stage STAGE
 orchestrator cycle deliver SESSION push
 ```
 
-Repeat run/verify for every task before accepting the stage. Review and verification prompts
+Repeat run/verify for every task before accepting the stage. Before reviewing and committing
+the final stage of a feedback-enabled cycle, record goal acceptance using the command below.
+Review and verification prompts
 require your actual checks. Push displays the exact commit, branch and remote and asks permission.
 Manually merge on the Git host or in your terminal, refresh the local base if needed, and use
 `orchestrator cycle deliver SESSION record-merge --stage STAGE`. Prepare the next stage only
@@ -71,12 +79,52 @@ orchestrator cycle finish SESSION
 orchestrator cycle next SESSION
 ```
 
-Finish prompts for what changed and your feedback. Next prompts for the next goal and prints
+Finish prompts for what changed and uses the final acceptance feedback. Legacy cycles that
+have not enabled feedback rounds can still use the original finish prompt. Next prompts for the next goal and prints
 a fresh session path. It carries the immediately preceding cycle's goal, outcomes, feedback
 and commit references into the planner as historical context. Earlier cycle sessions and
 artifacts stay available. Feedback does not automatically enlarge the next goal.
 Between cycles, simply exit the terminal and later run cycle status/history. No automatic
 inference, deployment, merge or push is triggered by finishing a cycle.
+
+### Two types of feedback during a cycle
+
+After testing, if a correction or addition fits an existing task's approved scope, enter:
+
+```sh
+orchestrator cycle feedback SESSION --kind improve --task TASK_ID
+orchestrator cycle deliver SESSION retry --stage STAGE
+```
+
+The verify command also asks whether the current implementation task needs improvement before
+acceptance. Running `orchestrator cycle feedback SESSION` without options prompts for the type,
+note and affected task or final stage.
+
+The terminal asks for feedback and displays the saved assignment, agent, workstream and exact
+owned files. Only that selected assignment is retried, using its existing model and skills.
+The new attempt includes your feedback and must pass its original checks plus a focused
+feedback check. Verify the new attempt and accept the combined stage again. Other independent
+verified tasks are preserved; previously executed dependent tasks or overlapping audited files
+block the narrow retry. Do not select a frontend assignment for a database contract change.
+Wider changes require an explicit design scope decision; this version does not automatically
+expand ownership, create new tasks or migrate previous acceptance across a redesigned plan.
+Feedback corrections must be recorded before the affected stage has a commit receipt.
+
+When all other stages have recorded merges and the final stage's checks pass:
+
+```sh
+orchestrator cycle feedback SESSION --kind goal-achieved --stage FINAL_STAGE
+orchestrator cycle deliver SESSION review --stage FINAL_STAGE
+orchestrator cycle deliver SESSION commit --stage FINAL_STAGE
+orchestrator cycle deliver SESSION push
+```
+
+Goal-achieved feedback is timestamped and binds the current test evidence. It becomes part
+of the AI-review fingerprint and commit message (cycle number, note, timestamp and acceptance
+ID). Even a no-change final verification stage creates a metadata-only commit so the feedback
+is in Git history. AI approval and a separate explicit push confirmation are still required.
+After manual merge and merge recording, finish the same cycle. New cycles use this final
+acceptance gate by default; existing registered cycles adopt it when feedback is recorded.
 
 
 A Python project planner and local execution coordinator, with a terminal interface and a

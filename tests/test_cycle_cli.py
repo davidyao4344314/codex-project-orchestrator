@@ -4,6 +4,7 @@ from typer.testing import CliRunner
 
 from codex_orchestrator import git_service
 from codex_orchestrator.cli import app
+from codex_orchestrator.cycle_manager import register
 from codex_orchestrator.cycle_store import histories
 from codex_orchestrator.session import PlanningSession
 
@@ -48,3 +49,25 @@ def test_terminal_push_requires_user_confirmation(accepted, monkeypatch):
         calls[0].commit
         == git_service.GitPublication.load(git_service.publication_path(path)).commit
     )
+
+
+def test_feedback_prompt_records_choice_without_deploying(accepted, monkeypatch):
+    from codex_orchestrator import execution
+    from codex_orchestrator.cycle_store import find_history
+    from codex_orchestrator.run_store import runs
+
+    _, path = accepted
+    source = path.with_name("source.json")
+    register(source)
+    earlier = len(runs(path))
+    monkeypatch.setattr(
+        execution,
+        "start_run",
+        lambda *a: (_ for _ in ()).throw(AssertionError("Unexpected deployment")),
+    )
+    result = CliRunner().invoke(
+        app, ["cycle", "feedback", str(source)], input="improve\nImprove spacing\nimplement\n"
+    )
+    assert result.exit_code == 0, result.output
+    assert len(runs(path)) == earlier
+    assert find_history(source)[1].cycles[0].feedback_rounds[-1].note == "Improve spacing"
