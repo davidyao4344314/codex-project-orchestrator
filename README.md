@@ -1,5 +1,84 @@
 # Codex Project Orchestrator
 
+## Terminal development cycles (first version)
+
+A project can now contain numbered development cycles, each with a goal, UTC start and
+completion timestamps, delivered changes, feedback and verified stage commit SHAs.
+The existing planning, stage execution, review and Git gates are reused. No browser UI
+changes are included in this version.
+
+```mermaid
+flowchart TD
+    Idea[New cycle: ask for goal] --> Plan[Clarify requirements and approve technical design]
+    Plan --> Stage[Prepare stage branch and implement]
+    Stage --> Tests[Verify task and accept stage tests]
+    Tests --> Review[Independent AI review]
+    Review -->|Changes requested| Stage
+    Review -->|Approved| Commit[Local commit]
+    Commit --> Permission{User permits push?}
+    Permission -->|Yes| Merge[Push then manually merge and record merge]
+    Permission -->|Not yet| Commit
+    Merge --> More{More stages?}
+    More -->|Yes| Stage
+    More -->|No| Feedback[Record changes, timestamps, commits and feedback]
+    Feedback --> Again{Another idea?}
+    Again -->|Yes| Idea
+    Again -->|Later| Pause[Save history and return later]
+```
+
+Start from the orchestrator repository with its Python environment activated:
+
+```sh
+orchestrator cycle new /path/to/project
+orchestrator resume plans/session-EXAMPLE.json
+orchestrator design plans/session-EXAMPLE.json
+orchestrator cycle status plans/session-EXAMPLE.json
+orchestrator cycle history plans/session-EXAMPLE.json
+```
+
+Use the real session path printed by the first command. For an existing session, use
+`orchestrator cycle register SESSION` instead. Imported timestamps are estimated from the
+session's modification time and marked imported. Keep sessions under ignored plans/.
+Before delivering, initialize the project's Git repository, configure origin and Git identity,
+and make an initial clean base commit. Use the default design output path.
+
+Run `orchestrator cycle deliver --help` for terminal stage controls. With an approved
+technical design, use these in order (replace SESSION and STAGE with actual values):
+
+```sh
+orchestrator cycle deliver SESSION enable --base main
+orchestrator cycle deliver SESSION approve --stage STAGE
+orchestrator cycle deliver SESSION prepare --stage STAGE
+orchestrator cycle deliver SESSION run --stage STAGE
+orchestrator cycle deliver SESSION verify --run-id RUN_ID
+orchestrator cycle deliver SESSION accept --stage STAGE
+orchestrator cycle deliver SESSION review --stage STAGE
+orchestrator cycle deliver SESSION commit --stage STAGE
+orchestrator cycle deliver SESSION push
+```
+
+Repeat run/verify for every task before accepting the stage. Review and verification prompts
+require your actual checks. Push displays the exact commit, branch and remote and asks permission.
+Manually merge on the Git host or in your terminal, refresh the local base if needed, and use
+`orchestrator cycle deliver SESSION record-merge --stage STAGE`. Prepare the next stage only
+after recording prerequisite merges. The delivery command also offers pause, resume, retry,
+recovery and status actions. No inference or Git writes happen when viewing cycle history/status.
+
+After every delivery stage has a recorded merge, return to the clean integrated base:
+
+```sh
+orchestrator cycle finish SESSION
+orchestrator cycle next SESSION
+```
+
+Finish prompts for what changed and your feedback. Next prompts for the next goal and prints
+a fresh session path. It carries the immediately preceding cycle's goal, outcomes, feedback
+and commit references into the planner as historical context. Earlier cycle sessions and
+artifacts stay available. Feedback does not automatically enlarge the next goal.
+Between cycles, simply exit the terminal and later run cycle status/history. No automatic
+inference, deployment, merge or push is triggered by finishing a cycle.
+
+
 A Python project planner and local execution coordinator, with a terminal interface and a
 Streamlit dashboard. Plan frontend, backend, database and integration work, inspect each agent's
 context, then run approved assignments through your installed Codex CLI one at a time.

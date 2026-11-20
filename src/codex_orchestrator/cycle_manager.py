@@ -1,5 +1,6 @@
 """Explicit cycle transitions; existing planning and delivery services stay independent."""
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -33,7 +34,11 @@ def register(source: Path, *, imported: bool = True) -> ProjectHistory:
             for _, h in histories(source.parent)
         ):
             raise ValueError("This folder already has a cycle history. Continue that project.")
-        goal = session.answers[0].response if session.answers else session.project_name
+        goal = (
+            session.answers[0].response
+            if session.answers
+            else (session.brief.goal if session.brief else session.project_name)
+        )
         cycle = Cycle(
             number=1,
             session_name=source.name,
@@ -95,6 +100,8 @@ def complete(source: Path, changes: str, feedback: str) -> Cycle:
         design_path = source.with_name(source.stem + ".design.json")
         state = DesignSession.load(design_path)
         check_source(state)
+        if Path(state.source_file).resolve() != source.resolve():
+            raise ValueError("The design belongs to a different cycle.")
         if state.phase != "approved" or Path(state.project).resolve() != project.resolve():
             raise ValueError("An approved design for this project is required.")
         if any(r.status in {"running", "starting"} for r in runs(design_path)):
@@ -137,6 +144,9 @@ def start_next(source: Path, goal: str) -> Path:
         stage_branches.clean(project)
         design_path = source.with_name(source.stem + ".design.json")
         state = DesignSession.load(design_path)
+        check_source(state)
+        if Path(state.source_file).resolve() != source.resolve():
+            raise ValueError("The design belongs to a different cycle.")
         settings, _ = stage_branches.current(state, design_path)
         if (
             settings is None
@@ -147,6 +157,22 @@ def start_next(source: Path, goal: str) -> Path:
             raise ValueError("Previous cycle commits are missing from the base.")
         next_path = source.parent / f"session-{uuid4().hex[:12]}.json"
         session = PlanningSession.load(source)
+        context = json.dumps(
+            {
+                "cycle": previous.number,
+                "goal": previous.goal,
+                "changes": previous.changes,
+                "feedback": previous.feedback,
+                "commits": previous.commits,
+                "prior_constraints": session.brief.constraints if session.brief else [],
+                "prior_exclusions": session.brief.exclusions if session.brief else [],
+            },
+            ensure_ascii=False,
+        )
+        if len(context.encode()) > 48 * 1024:
+            raise ValueError("Prior cycle context exceeds 48 KiB; inspect the saved history.")
+        if sensitive_text(context):
+            raise ValueError("Prior cycle context contains recognizable credential content.")
         create_session(
             Path(history.project),
             history.name,
@@ -154,6 +180,7 @@ def start_next(source: Path, goal: str) -> Path:
             next_path,
             intake_model=session.intake_model,
             planning_model=session.planning_model,
+            previous_cycle_context=context,
         )
         history.cycles.append(
             Cycle(number=previous.number + 1, session_name=next_path.name, goal=goal.strip())

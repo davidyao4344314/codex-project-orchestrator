@@ -41,7 +41,11 @@ def test_complete_and_start_another_cycle(project, monkeypatch):
     history = find_history(next_path)[1]
     assert [c.status for c in history.cycles] == ["completed", "active"]
     assert source.read_bytes() == original
-    assert PlanningSession.load(next_path).phase == "intake"
+    next_session = PlanningSession.load(next_path)
+    assert next_session.phase == "intake"
+    assert "Improve display" in next_session.previous_cycle_context
+    assert "Implemented counter" in next_session.previous_cycle_context
+    assert next_session.answers[0].response == "Improve display"
     with pytest.raises(ValueError, match="historical"):
         cycles.require_active(source)
     with pytest.raises(ValueError):

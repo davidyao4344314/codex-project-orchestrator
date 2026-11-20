@@ -285,3 +285,23 @@ Process observations are local and conservative, with stable UTC/C-locale owner 
 They are not a durable supervisor, distributed transaction or exhaustive external-writer detector.
 The gap before child metadata is checkpointed and detached children require manual inspection.
 Existing human stage acceptance, AI review, branch provenance and fresh per-push permission remain.
+
+## Development cycle layer
+
+`cycle_store` adds a per-project history manifest beside the first planning session. Each cycle
+references its own session filename, so design revisions, agent runs, branch identities and
+publication receipts remain independent. Importing a legacy session is explicit; its start time
+is estimated from the session timestamp and marked imported.
+
+`cycle_manager` serializes creation and completion with the shared project writer lock.
+Completion requires an approved design, accepted stages, matching recorded merge evidence,
+a clean integration base containing the merged commits, and explicit changes/feedback.
+Starting the next cycle requires the completed predecessor and its integrated commits.
+The terminal commands and worker/publication gates reject further work on historical cycles.
+Existing unregistered sessions remain usable. Checkpoints are local JSON, not a transactional
+database; an interrupted creation can leave an unattached session file for manual inspection.
+
+The next session carries bounded prior-cycle context as reference data for intake/planning.
+The user supplies a fresh goal; existing approved scope and review gates continue to apply.
+The initial interface is `cycle_cli`, with no Streamlit changes. Performance evaluation,
+longer-term memory selection and automatic workflow optimization are later work.

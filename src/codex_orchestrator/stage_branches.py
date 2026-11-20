@@ -84,6 +84,9 @@ def branch_name(state, path, stage_id):
 
 def state_for(path):
     state = DesignSession.load(path)
+    from codex_orchestrator.cycle_manager import require_active
+
+    require_active(Path(state.source_file))
     check_source(state)
     if state.phase != "approved":
         raise ValueError("Approve the technical design first.")

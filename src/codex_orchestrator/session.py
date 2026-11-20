@@ -117,6 +117,7 @@ class PlanningSession(SessionData):
     revisions: list[Revision] = Field(default_factory=list)
 
     approved_revision: int | None = None
+    previous_cycle_context: str | None = None
 
     @model_validator(mode="after")
     def validate_phase(self) -> Self:
