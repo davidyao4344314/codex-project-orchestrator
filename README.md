@@ -1,6 +1,190 @@
 # Codex Project Orchestrator
 
-## Terminal development cycles (first version)
+A Python project planner and local execution coordinator. The current development-cycle
+prototype is terminal-based; the existing Streamlit dashboard remains available separately.
+
+## Quick start: open a terminal and test the latest code
+
+### 1. Open the orchestrator in a fresh terminal (macOS)
+
+In PyCharm, open the orchestrator project and choose **View → Tool Windows → Terminal**.
+Use the **+** button in the terminal tool window to open another terminal tab. Alternatively,
+open macOS Terminal and run `cd` followed by the path to your cloned orchestrator repository.
+
+Open the repository directory (replace the example path in an external terminal). If PyCharm's
+terminal already opens at the repository root, skip the first line:
+
+```sh
+cd /path/to/codex-project-orchestrator
+source .venv/bin/activate
+orchestrator cycle --help
+```
+
+The prompt should begin with `(.venv)`. If the virtual environment does not exist (for example,
+on a fresh checkout), run `python3 -m venv .venv`, activate it as above, and install the package:
+
+```sh
+python -m pip install -e '.[dev,web]'
+```
+
+The editable installation means local Python changes are available in the terminal without
+reinstalling the project after each commit.
+
+### 2. Run the fast automated cycle tests first
+
+```sh
+python -m pytest tests/test_cycle_store.py tests/test_cycle_manager.py tests/test_cycle_cli.py tests/test_feedback_records.py tests/test_cycle_feedback.py -q
+```
+
+These tests simulate Codex and remote pushes, using temporary repositories. They verify the
+cycle records, targeted feedback, preservation of independent tasks, final commit contents,
+and user push confirmation without using your Codex account. For the full project suite, run
+`python -m pytest -q` (230 tests at the time of this guide), then
+`ruff check src tests examples` and `ruff format --check src tests examples`.
+
+### 3. Create a disposable real-worker test project
+
+Run these commands from the orchestrator directory. The sample is copied into a unique folder
+under ignored `plans/`, so the real worker never edits your orchestrator source:
+
+```sh
+mkdir -p plans
+PROJECT="$(mktemp -d "$PWD/plans/notes-smoke.XXXXXX")"
+cp -R examples/worker-smoke/. "$PROJECT/"
+git -C "$PROJECT" init -b main
+git -C "$PROJECT" add .
+git -C "$PROJECT" commit -m "Initialize disposable notes app"
+printf '%s\n' "$PROJECT"
+```
+
+If Git asks for an identity, configure your own name and email in that repository and rerun
+the initial commit. For the complete push/merge workflow, create an empty disposable private
+remote repository on your Git host. Connect it and explicitly publish its initial main commit
+using your own Git credentials:
+
+```sh
+git -C "$PROJECT" remote add origin https://github.com/YOUR_ACCOUNT/YOUR_TEST_REPO.git
+git -C "$PROJECT" push -u origin main
+```
+
+Replace the URL first. The latter command really pushes the starter commit; skip it if you
+only want to test planning locally. Do not put credentials into the URL.
+
+### 4. Start Cycle 001
+
+Check your existing Codex sign-in and start the cycle with the sample brief:
+
+```sh
+orchestrator setup
+orchestrator cycle new "$PROJECT" --goal "$(cat "$PROJECT/BRIEF.md")"
+```
+
+The second command prints a new session path. Copy that actual path into the shell variable
+below (do not use the example filename literally):
+
+```sh
+SESSION="plans/session-EXAMPLE.json"
+orchestrator resume "$SESSION"
+orchestrator design "$SESSION"
+orchestrator cycle history "$SESSION"
+orchestrator cycle status "$SESSION"
+```
+
+Answer questions and review/approve both the requirements and the technical design.
+The notes app brief asks for independent database, backend, frontend and integration
+assignments, with exact files and test evidence. Read the printed stage and task IDs; these
+are generated per design, so do not assume that their names match the examples.
+
+If you stop after planning, close the terminal and resume later by activating the
+orchestrator environment and setting `SESSION` to the saved path again. Then run
+`orchestrator cycle status "$SESSION"`. Status and history alone never launch a model.
+
+### 5. Deliver a stage and test the feedback loop
+
+With a clean base branch and an approved design, enable stage branches once and pick the
+first delivery stage from the design:
+
+```sh
+orchestrator cycle deliver "$SESSION" enable --base main
+STAGE="ACTUAL_STAGE_ID"
+orchestrator cycle deliver "$SESSION" approve --stage "$STAGE"
+orchestrator cycle deliver "$SESSION" prepare --stage "$STAGE"
+orchestrator cycle deliver "$SESSION" run --stage "$STAGE"
+```
+
+Inspect the run evidence folder printed in the terminal and actually perform its required
+human checks. Copy the reported run ID, then verify:
+
+```sh
+RUN_ID="ACTUAL_RUN_ID"
+orchestrator cycle deliver "$SESSION" verify --run-id "$RUN_ID"
+```
+
+Choose improvement when the terminal asks if you want a correction, or record it explicitly
+with `orchestrator cycle feedback "$SESSION" --kind improve --task ACTUAL_TASK_ID`.
+For a frontend correction, choose the frontend task before its stage is committed; a useful
+test is "Make the empty-state text clearer." Check that the branch, task, workstream and
+owned files match the approved assignment. Retry:
+
+```sh
+orchestrator cycle deliver "$SESSION" retry --stage "$STAGE"
+```
+
+Expect only the selected agent to run, a new run ID, the original checks plus a feedback check,
+and previously verified independent tasks to retain their run IDs. Use the new run ID when
+verifying. Repeat run/verify until all tasks in the stage pass, then:
+
+```sh
+orchestrator cycle deliver "$SESSION" accept --stage "$STAGE"
+```
+
+For the notes sample, run the generated app and tests from a separate terminal in the
+disposable project folder (see the sample's README for its environment setup). Check that
+blank titles are rejected, notes display newest first, and your disposable notes persist
+after restarting. These are product checks, separate from the orchestrator's automated tests.
+
+### 6. Review, push, merge and finish
+
+For the last delivery stage only, after all earlier merges and successful final checks,
+record the final feedback before running review:
+
+```sh
+orchestrator cycle feedback "$SESSION" --kind goal-achieved --stage "$STAGE"
+```
+
+For every accepted stage:
+
+```sh
+orchestrator cycle deliver "$SESSION" review --stage "$STAGE"
+orchestrator cycle deliver "$SESSION" commit --stage "$STAGE"
+orchestrator cycle deliver "$SESSION" push
+```
+
+Review must approve the actual changes first. At the push prompt, inspect the displayed commit,
+branch and destination and answer yes only if you want to publish. Try answering no first to
+confirm nothing is pushed. Merge the stage branch into main on your Git host using a normal
+merge (not squash/rebase), then run:
+
+```sh
+orchestrator cycle deliver "$SESSION" refresh
+orchestrator cycle deliver "$SESSION" record-merge --stage "$STAGE"
+```
+
+Select the next stage and repeat. After the final merge:
+
+```sh
+orchestrator cycle finish "$SESSION"
+orchestrator cycle history "$SESSION"
+orchestrator cycle next "$SESSION"
+```
+
+Expect Cycle 001 to be completed, with timestamps, feedback, and commit SHAs. The final commit
+message should include the goal-achieved note and acceptance ID. The next command asks for
+another goal, creates Cycle 002, and prints its new session path. Replace `SESSION` with that
+path when continuing. See [feedback acceptance checks](docs/cycle-feedback-testing.md)
+for additional failure and boundary tests.
+
+## Terminal development cycles (current version)
 
 A project can now contain numbered development cycles, each with a goal, UTC start and
 completion timestamps, delivered changes, feedback and verified stage commit SHAs.
@@ -131,9 +315,9 @@ A Python project planner and local execution coordinator, with a terminal interf
 Streamlit dashboard. Plan frontend, backend, database and integration work, inspect each agent's
 context, then run approved assignments through your installed Codex CLI one at a time.
 
-## Current workflow
+## Earlier dashboard workflow
 
-The diagram shows the implemented workflow as of 16 November 2026 (with stage branches enabled). Product stages 1–3 describe
+The diagram shows the existing dashboard workflow as of 16 November 2026 (with stage branches enabled). Product stages 1–3 describe
 the planner itself; **delivery stages** are the smaller implementation milestones it creates
 for your project. Every delivery stage has its own approval and verification gates.
 
