@@ -10,6 +10,7 @@ import typer
 from pydantic import ValidationError
 
 from codex_orchestrator.codex import CodexError, codex_plan
+from codex_orchestrator.cycle_cli import app as cycle_app
 from codex_orchestrator.design import check_source, prepare_design, run_design
 from codex_orchestrator.design_display import show_design
 from codex_orchestrator.design_models import DesignSession
@@ -21,6 +22,7 @@ from codex_orchestrator.session import PlanningSession
 from codex_orchestrator.setup import ensure_codex
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
+app.add_typer(cycle_app, name="cycle")
 
 
 @app.callback()
@@ -136,6 +138,9 @@ def resume(
     """Continue a saved interactive planning session."""
     try:
         session = PlanningSession.load(session_file)
+        from codex_orchestrator.cycle_manager import require_active
+
+        require_active(session_file)
         for field, value in (("intake_model", intake_model), ("planning_model", planning_model)):
             if value is not None:
                 if not value.strip():
@@ -146,7 +151,7 @@ def resume(
         if intake_model is not None or planning_model is not None:
             session.save(session_file)
         run_session(session, session_file)
-    except (OSError, UnicodeError, ValidationError, CodexError) as exc:
+    except (OSError, UnicodeError, ValueError, CodexError) as exc:
         typer.echo(f"Could not continue session: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
@@ -201,11 +206,14 @@ def design(
                 validate_design(state.revisions[-1].design, state.source.brief, Path(state.project))
             show_design(state)
             return
+        from codex_orchestrator.cycle_manager import require_active
+
+        require_active(session_file)
         state, path = prepare_design(
             session_file, output, architect_model=model, agent_model=agent_model
         )
         run_design(state, path, timeout)
-    except (OSError, UnicodeError, ValidationError, CodexError) as exc:
+    except (OSError, UnicodeError, ValueError, CodexError) as exc:
         typer.echo(f"Could not create technical design: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 

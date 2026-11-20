@@ -7,7 +7,14 @@ from uuid import uuid4
 from codex_orchestrator import git_service, stage_branches
 from codex_orchestrator.context_files import sensitive_text
 from codex_orchestrator.coordination_store import stage_accepted
-from codex_orchestrator.cycle_store import Cycle, ProjectHistory, find_history, history_path, now
+from codex_orchestrator.cycle_store import (
+    Cycle,
+    ProjectHistory,
+    find_history,
+    histories,
+    history_path,
+    now,
+)
 from codex_orchestrator.design import check_source
 from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.interactive import create_session
@@ -21,8 +28,6 @@ def register(source: Path, *, imported: bool = True) -> ProjectHistory:
         existing = find_history(source)
         if existing:
             return existing[1]
-        from codex_orchestrator.cycle_store import histories
-
         if any(
             Path(h.project).resolve() == Path(session.project).resolve()
             for _, h in histories(source.parent)
@@ -39,6 +44,25 @@ def register(source: Path, *, imported: bool = True) -> ProjectHistory:
         history = ProjectHistory(project=session.project, name=session.project_name, cycles=[cycle])
         history.save(history_path(source), new=True)
         return history
+
+
+def create_project(project: Path, goal: str, directory: Path) -> Path:
+    project = project.resolve()
+    if not project.is_dir():
+        raise ValueError("Choose an existing project folder.")
+    if not goal.strip() or len(goal) > 4000 or sensitive_text(goal):
+        raise ValueError("Enter a goal under 4,000 characters without credentials.")
+    with git_service.writer(project):
+        if any(Path(h.project).resolve() == project for _, h in histories(directory)):
+            raise ValueError("This folder already has a cycle history.")
+        path = directory / f"session-{uuid4().hex[:12]}.json"
+        create_session(project, project.name, goal.strip(), path)
+        ProjectHistory(
+            project=str(project),
+            name=project.name,
+            cycles=[Cycle(number=1, session_name=path.name, goal=goal.strip())],
+        ).save(history_path(path), new=True)
+        return path
 
 
 def active_cycle(source: Path):
