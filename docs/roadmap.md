@@ -30,6 +30,11 @@ Implemented first increment: persistent, role-isolated Codex threads with bounde
 reuse and incremental clarification prompts. A fresh-session baseline switch is available;
 actual token/correctness improvements are not yet established.
 
+Implemented next increment: compact combined planning/architecture for bounded projects,
+and deterministic task model allocation from a user-approved Codex model catalog palette.
+Measured usage can be grouped by requested model. A controlled evaluation against the
+ordinary workflow is still needed.
+
 ## Evaluation Engine (评估引擎)
 
 Run representative tasks before and after an optimization with comparable inputs, model

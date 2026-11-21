@@ -13,6 +13,7 @@ later integrations.
 | --- | --- | --- |
 | Contracts/checkpoints | `models`, `session`, `design_models` | Validate persisted data, atomic replacement, revision history |
 | Planning services | `planner`, `interactive`, `design` | Intake, requirements, architecture, clarification and revisions |
+| Planning optimization | `compact_planning`, `model_catalog`, `model_allocation` | Combined drafts, model catalog discovery and deterministic task models |
 | Design rules | `design_validation`, `stage_review`, `reassignment`, `allocation` | Graph/context validation, stage decisions, ownership changes |
 | Job assessment | `job_assessment` | Summarize architect difficulty/team decisions without inference on refresh |
 | Assignment context | `assignment_context`, `context_builder`, `context_models`, `context_files`, `context_handoffs` | Resolve bounded, versioned task packages without inference or UI imports |
@@ -99,6 +100,43 @@ and stale final outputs require re-verification.
 Install the complete development environment with `python -m pip install -e '.[dev,web]'`.
 Run `python -m pytest -q`, `ruff check src tests examples`, and `ruff format --check src tests examples`.
 Web tests intentionally skip without the web extra, so install it when changing the interface.
+
+## Compact planning and model allocation
+
+Intake returns a route recommendation as part of its existing structured response. The
+auto route has a local requirement-count guard. A compact call returns a complete
+technical design (or a clarification/standard-route reason) and Python projects the
+existing `ScopedTask` fields into the Stage 1 plan. It validates both the full design
+contract and compact limits: one agent, one stage, at most three non-complex tasks,
+two components and six owned files; no database/storage or multi-domain writers.
+The full-route recommendation is conservative; local checks are structural, not a
+semantic proof that the brief is simple. A rejected compact result saves a fallback
+for this draft and requires explicit resume rather than spending another model call.
+
+The candidate design is saved beside the planning checkpoint under the plan revision
+number and digest. After Stage 1 approval, `prepare_design` checks project/source
+identity, digest, task projection and design validation. It loads the candidate as
+a reviewable Stage 2 revision, not an approval. The same stage review, worker scope,
+verification, independent review and publication gates are required as for standard
+designs. Existing sessions without a candidate retain their normal workflow.
+
+`model_catalog` opens a bounded local Codex app-server stdio connection, initializes
+and requests only `model/list`. It does not read auth files, start a model turn or save
+credentials. The user confirms a palette of offered exact model IDs; model-family
+preferences are heuristics, not a guarantee of availability or cost. Unknown tiers
+use the configured default, and explicit choices can override the suggestion.
+`model_allocation` maps task difficulty to the palette and respects additional
+architect capability recommendations when task ratings understate the agent's needs.
+The revision contains both agent defaults and exact per-task choices; execution,
+context and displays use the latter. Changing the model invalidates session reuse.
+
+The optional task-model map is included in the design fingerprint when present.
+For legacy revisions, omitting its null value from the digest preserves saved approvals,
+branches, publication receipts and archival identities. Applying automatic allocation
+to a prior unstarted design creates a new reviewable revision, and started deliveries
+or scoped corrections cannot be automatically reallocated. Manual model/roster
+choices take precedence. Scoped correction drafts copy approved task models, and
+independent review uses the chosen standard/strong tier unless explicitly overridden.
 
 ## AI allocation extension
 

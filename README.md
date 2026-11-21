@@ -84,6 +84,7 @@ below (do not use the example filename literally):
 
 ```sh
 SESSION="plans/session-EXAMPLE.json"
+orchestrator cycle models "$SESSION"
 orchestrator resume "$SESSION"
 orchestrator design "$SESSION"
 orchestrator cycle history "$SESSION"
@@ -94,6 +95,47 @@ Answer questions and review/approve both the requirements and the technical desi
 The notes app brief asks for independent database, backend, frontend and integration
 assignments, with exact files and test evidence. Read the printed stage and task IDs; these
 are generated per design, so do not assume that their names match the examples.
+
+#### Automatic planning route and model selection
+
+The default planning route is `auto`. The requirements agent recommends a compact
+route for a small, well-defined local change. Compact planning generates the task plan
+and technical design in **one Codex turn**; after approving the requirements plan,
+`orchestrator design "$SESSION"` loads the saved draft without another architect
+call. Design approval, each stage approval, tests, independent review and push consent
+remain required. Complex projects, databases and multi-stage designs use the standard route.
+If the compact attempt discovers complexity, it saves a standard fallback and stops;
+explicitly resume to use the full workflow.
+
+```sh
+orchestrator cycle new "$PROJECT" --route auto
+orchestrator resume "$SESSION" --route standard
+```
+
+Choose `--route compact` to request the compact route for a small project or
+`--route standard` to keep the separate planner and architect. The compact validation
+limits still apply; never delete required work to fit them.
+
+The optional `cycle models` command lists models from the installed Codex app-server
+and proposes a palette. Confirm it once per project/cycle (subsequent cycles inherit it).
+It uses exact catalog IDs, not guessed display names; it doesn't start a model turn.
+Routine work uses the economical tier, moderate work the standard tier, and complex
+work the strong-reasoning tier when those options are available. The architecture model
+uses the strong tier, and each task receives its approved allocated model. A single
+agent can have different models for different tasks. The reviewer is still independent.
+
+```sh
+orchestrator cycle models "$SESSION" --show
+orchestrator design "$SESSION" --auto-models
+```
+
+Use `--auto-models` to apply the palette to an existing unstarted design, creating a
+new reviewable revision if needed. New designs use the palette automatically. Once
+delivery starts, retain the approved choices and apply a new palette in a future cycle.
+The model review menu and `--agent-model` let you override automatic choices; manual
+choices take precedence. If catalog access is unavailable, decline or continue with
+the Codex default. The catalog is not a guarantee of account access at dispatch.
+See [optimization testing](docs/planning-optimization-testing.md).
 
 If you stop after planning, close the terminal and resume later by activating the
 orchestrator environment and setting `SESSION` to the saved path again. Then run
@@ -115,6 +157,7 @@ orchestrator cycle usage "$SESSION" --details
 
 These commands only inspect local records. The first shows saved thread IDs; the second
 groups measured token usage and elapsed time by role, stage, task and fresh/resumed turns.
+It also groups by requested model to help compare allocation choices.
 Missing usage is reported as unknown: historical/ad-hoc calls are not reconstructed.
 The session ID and observed token counts are also shown after a managed turn.
 
