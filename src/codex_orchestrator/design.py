@@ -17,6 +17,7 @@ from codex_orchestrator.design_models import (
 from codex_orchestrator.design_validation import context_blockers, validate_design
 from codex_orchestrator.interactive import READ_ONLY, ask, model_label
 from codex_orchestrator.session import Answer, PlanningSession
+from codex_orchestrator.session_manager import digest, managed_turn
 from codex_orchestrator.setup import ensure_codex
 
 ARCHITECT_INSTRUCTIONS = (
@@ -145,16 +146,49 @@ def generate_design(state: DesignSession, output: Path, timeout: int) -> None:
         "clarifications": [answer.model_dump() for answer in state.answers],
         "previous_design": (state.revisions[-1].design.model_dump() if state.revisions else None),
     }
+    clarifications = data["clarifications"]
+    boundary = {"source_digest": state.source_digest, "previous_design": data["previous_design"]}
+    with managed_turn(
+        output,
+        Path(state.project),
+        "architect",
+        state.architect_model,
+        boundary,
+        resume_if=lambda binding: (
+            binding.cursor <= len(clarifications)
+            and binding.cursor_digest == digest(clarifications[: binding.cursor])
+        ),
+    ) as turn:
+        _generate_design(state, output, timeout, data, turn)
+        turn.cursor = len(clarifications)
+        turn.cursor_digest = digest(clarifications)
+
+
+def _generate_design(state, output, timeout, data, turn):
     reported = []
     started = monotonic()
     typer.echo("Architect is inspecting the project and designing the workflow...", err=True)
+    if turn.previous:
+        data = {
+            "new_clarifications": data["clarifications"][turn.previous.cursor :],
+            "validation_feedback": data["validation_feedback"],
+        }
+        instructions = (
+            "Continue the existing technical design from the approved requirements and "
+            "architect instructions. Apply these new clarifications and validation feedback. "
+            "Keep exact agent ownership, dependency, context and verification boundaries. "
+            "Return one focused question or a complete updated technical-design JSON."
+        )
+    else:
+        instructions = ARCHITECT_INSTRUCTIONS
     reply = codex_response(
         Path(state.project),
-        READ_ONLY + ARCHITECT_INSTRUCTIONS + "\n" + json.dumps(data, ensure_ascii=False),
+        READ_ONLY + instructions + "\n" + json.dumps(data, ensure_ascii=False),
         DesignReply,
         model=state.architect_model,
         timeout=timeout,
         on_response=reported.append,
+        turn=turn,
     )
     elapsed = monotonic() - started
     check_source(state)
