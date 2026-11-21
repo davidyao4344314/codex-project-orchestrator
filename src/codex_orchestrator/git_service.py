@@ -184,6 +184,8 @@ def evidence_digest(state: DesignSession, path: Path, stage_id: str) -> str:
                 run.workspace_before_digest,
                 run.workspace_after_digest,
             )
+        if run.prompt_digest:
+            attempt += (run.prompt_digest,)
         attempts.append(attempt)
     return hashlib.sha256(json.dumps(attempts).encode()).hexdigest()
 

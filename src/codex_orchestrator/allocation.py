@@ -15,7 +15,7 @@ from codex_orchestrator.design_models import (
     DesignSession,
     revision_digest,
 )
-from codex_orchestrator.design_validation import validate_design
+from codex_orchestrator.design_validation import SUMMARY_KINDS, validate_design
 from codex_orchestrator.execution import is_busy
 from codex_orchestrator.models import Text
 from codex_orchestrator.session import SessionData
@@ -98,7 +98,9 @@ def allocated_revision(state: DesignSession, proposal: AllocationProposal) -> De
     tasks = {t.id: t for t in design.tasks}
     for task in design.tasks:
         producers = set(task.depends_on) | {
-            c.reference for c in task.context if c.kind == "task_output" and c.required
+            c.reference
+            for c in task.context
+            if c.kind in SUMMARY_KINDS and (c.required or c.kind == "task_summary")
         }
         for producer in producers:
             if task.agent_id not in tasks[producer].handoff_to:

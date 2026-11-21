@@ -29,6 +29,8 @@ from codex_orchestrator.worker_runtime import (
     check_worker_verification,
     finalize_worker,
     prepare_worker,
+    prompt_digest,
+    validate_context_inputs,
     worker_prompt,
 )
 
@@ -178,6 +180,7 @@ def start_run(state, path, task, context=None):
                 recovery.pop("earlier_summary", None)
                 recovery.pop("commands_observed", None)
             run.prompt = worker_prompt(spec, package, previous_runs, recovery, run.branch)
+            run.prompt_digest = prompt_digest(run.prompt)
             turn.prepare(run.prompt)
             package.save(folder / "context.json")
             run.save(folder / "run.json")
@@ -224,6 +227,7 @@ def _worker(executable, project, folder, lock, stop, turn=None):
                     "Worker spec differs from its recorded contract or context digest."
                 )
             before = snapshot_workspace(project, spec.audit_paths, folder)
+            validate_context_inputs(run, spec, project, folder, before)
             before.save(folder / "workspace_before.json")
             run.workspace_before_digest = artifact_digest(before)
         command = exec_command(

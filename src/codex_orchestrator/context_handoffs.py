@@ -7,7 +7,7 @@ from pathlib import Path
 from codex_orchestrator.context_files import sensitive_text
 from codex_orchestrator.context_models import ContextLimits, ContextResource
 from codex_orchestrator.design_validation import ancestors, task_graph
-from codex_orchestrator.run_store import latest_runs, read_tail, run_directory
+from codex_orchestrator.run_store import latest_runs, read_tail
 
 
 def handoff_resource(state, task, reference, path: Path | None, limits: ContextLimits):
@@ -32,14 +32,54 @@ def handoff_resource(state, task, reference, path: Path | None, limits: ContextL
         return resource
     if path is None:
         return resource
-    run = latest_runs(path, len(state.revisions)).get(producer.id)
-    if run is None or run.status != "completed" or not run.verified:
+    from codex_orchestrator.cycle_feedback import needs_retry
+    from codex_orchestrator.stage_branches import valid_runs
+
+    try:
+        run = valid_runs(state, path, latest_runs(path, len(state.revisions))).get(producer.id)
+    except ValueError:
+        return resource
+    if (
+        run is None
+        or run.status != "completed"
+        or not run.verified
+        or run.agent_id != producer.agent_id
+        or needs_retry(state, path, producer.id, run)
+    ):
         return resource
     resource.source_run_id = run.id
-    summary = run.handoff_summary
-    truncated = run.handoff_truncated
-    if summary is None or truncated:
-        events = run_directory(path) / run.id / "events.jsonl"
+    if run.worker_contract_version == 1:
+        from codex_orchestrator.recovery_brief import safe_folder
+        from codex_orchestrator.worker_models import artifact_digest
+        from codex_orchestrator.worker_results import load_result
+
+        try:
+            report = load_result(safe_folder(path, run.id) / "worker_result.json")
+            if (
+                artifact_digest(report) != run.worker_result_digest
+                or report.task_id != producer.id
+                or report.agent_id != producer.agent_id
+                or report.context_digest != run.context_digest
+                or report.outcome != "completed"
+            ):
+                raise ValueError("Worker handoff report does not match verification.")
+            summary = compact_handoff(report)
+            truncated = False
+        except (OSError, ValueError):
+            resource.status = "excluded"
+            resource.reason += " Verified handoff evidence is missing or changed."
+            return resource
+    else:
+        summary = run.handoff_summary
+        truncated = run.handoff_truncated
+    if run.worker_contract_version is None and (summary is None or truncated):
+        from codex_orchestrator.recovery_brief import safe_folder
+
+        try:
+            events = safe_folder(path, run.id) / "events.jsonl"
+        except ValueError:
+            resource.status = "excluded"
+            return resource
         if events.exists():
             for line in read_tail(events):
                 try:
@@ -71,3 +111,15 @@ def handoff_resource(state, task, reference, path: Path | None, limits: ContextL
     resource.sha256 = hashlib.sha256(resource.content.encode("utf-8")).hexdigest()
     resource.status = "truncated" if truncated else "included"
     return resource
+
+
+def compact_handoff(report):
+    """Keep the implemented contract, outcomes and caveats; detailed logs remain on disk."""
+    sections = list(dict.fromkeys([report.summary, report.handoff]))
+    if report.changes:
+        sections.append("Changed files: " + ", ".join(c.path for c in report.changes))
+    if report.checks:
+        sections.append("Checks: " + ", ".join(f"{c.check_id}: {c.outcome}" for c in report.checks))
+    if report.human_checks:
+        sections.append("User checks: " + "; ".join(report.human_checks))
+    return "\n".join(sections)

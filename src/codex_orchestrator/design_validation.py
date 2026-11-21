@@ -53,6 +53,18 @@ def project_path(project: Path, reference: str) -> Path:
     return resolved
 
 
+SUMMARY_KINDS = {"task_output", "task_summary"}
+
+
+def upstream_parts(reference: str) -> tuple[str, str]:
+    producer, separator, name = reference.rpartition(":")
+    if not separator or not producer or not name:
+        raise CodexError(
+            "Upstream file context must use producer-task-id:repository-relative-file."
+        )
+    return producer, name
+
+
 def validate_design(design: TechnicalDesign, brief: Brief, project: Path) -> None:
     errors = []
     for label, items in (
@@ -109,11 +121,29 @@ def validate_design(design: TechnicalDesign, brief: Brief, project: Path) -> Non
                 "component": components,
                 "interface": interfaces,
                 "task_output": set(tasks),
+                "task_summary": set(tasks),
             }
-            if item.kind != "project_file" and item.reference not in known[item.kind]:
+            if item.kind in known and item.reference not in known[item.kind]:
                 errors.append(f"Task {task.id} has an unknown {item.kind} context reference")
             if item.kind == "project_file":
                 project_path(project, item.reference)
+            if item.kind == "upstream_file":
+                producer_id, name = upstream_parts(item.reference)
+                producer = tasks.get(producer_id)
+                resolved = project_path(project, name)
+                if producer is None or resolved not in {
+                    project_path(project, p) for p in producer.owned_paths
+                }:
+                    errors.append(
+                        f"Task {task.id} requests a file not owned by producer {producer_id}"
+                    )
+                if not any(
+                    ref.kind in SUMMARY_KINDS
+                    and ref.reference == producer_id
+                    and (ref.required or not item.required)
+                    for ref in task.context
+                ):
+                    errors.append(f"Task {task.id} needs a matching handoff from {producer_id}")
         for path in task.owned_paths:
             resolved = project_path(project, path)
             if resolved.is_dir() or path.endswith("/"):
@@ -139,12 +169,19 @@ def validate_design(design: TechnicalDesign, brief: Brief, project: Path) -> Non
         for path in task.owned_paths:
             writers.setdefault(project_path(project, path), []).append(task.id)
         for item in task.context:
-            if item.kind == "task_output" and item.required:
-                if item.reference not in predecessors[task.id]:
+            if item.kind in {"task_summary", "upstream_file"} or (
+                item.kind == "task_output" and item.required
+            ):
+                producer_id = (
+                    upstream_parts(item.reference)[0]
+                    if item.kind == "upstream_file"
+                    else item.reference
+                )
+                if producer_id not in predecessors[task.id]:
                     raise CodexError(
-                        f"Task {task.id} needs a dependency on context producer {item.reference}"
+                        f"Task {task.id} needs a dependency on context producer {producer_id}"
                     )
-                producer = tasks[item.reference]
+                producer = tasks[producer_id]
                 if task.agent_id != producer.agent_id and task.agent_id not in producer.handoff_to:
                     raise CodexError(
                         f"Task {producer.id} must hand off its result to agent {task.agent_id}"

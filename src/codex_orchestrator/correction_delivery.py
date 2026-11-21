@@ -19,9 +19,11 @@ from codex_orchestrator.design_models import (
     source_digest,
 )
 from codex_orchestrator.design_validation import (
+    SUMMARY_KINDS,
     ancestors,
     project_path,
     task_graph,
+    upstream_parts,
     validate_design,
 )
 from codex_orchestrator.run_store import latest_runs, run_directory
@@ -78,12 +80,41 @@ def _file_reference(name, reason, required=True):
 
 def _rewrite_context(task, original, active_ids, project):
     context = []
+    selected = {upstream_parts(r.reference)[0] for r in task.context if r.kind == "upstream_file"}
     for ref in task.context:
-        if ref.kind != "task_output" or ref.reference in active_ids:
+        if ref.kind == "upstream_file":
+            producer, name = upstream_parts(ref.reference)
+            if producer in active_ids:
+                context.append(ref)
+            elif project_path(project, name).is_file():
+                context.append(
+                    _file_reference(name, f"Integrated output of {producer}", ref.required)
+                )
+            elif ref.required:
+                raise ValueError(f"Archived context file {name} is missing. Approve a wider plan.")
+            continue
+        if ref.kind not in SUMMARY_KINDS or ref.reference in active_ids:
             context.append(ref)
             continue
+        if ref.reference in selected:
+            if ref.required and not any(
+                r.kind == "upstream_file"
+                and upstream_parts(r.reference)[0] == ref.reference
+                and r.required
+                and project_path(project, upstream_parts(r.reference)[1]).is_file()
+                for r in task.context
+            ):
+                raise ValueError(
+                    f"Archived handoff {ref.reference} has no required integrated file. "
+                    "Approve a wider plan before correcting this task."
+                )
+            continue  # Only the explicitly selected integrated files are carried forward.
         producer = original[ref.reference]
-        files = [name for name in producer.owned_paths if project_path(project, name).is_file()]
+        files = (
+            [name for name in producer.owned_paths if project_path(project, name).is_file()]
+            if ref.kind == "task_output"
+            else []
+        )
         if ref.required and not files:
             raise ValueError(
                 f"Archived context {ref.reference} has no live source files. "
@@ -140,7 +171,9 @@ def _scoped_design(state, path, target, note, merged, stage_id):
         check.stage_id, check.owned_paths, check.depends_on = stage_id, [], [target.id]
         check.deliverables = ["Observed regression test results"]
         check.handoff_to = ["user"]
-        check.context = [r for r in check.context if r.kind != "task_output"]
+        check.context = [
+            r for r in check.context if r.kind not in SUMMARY_KINDS | {"upstream_file"}
+        ]
         check.context.extend(
             _file_reference(name, "Existing integration input for regression check", False)
             for name in dict.fromkeys(audit)

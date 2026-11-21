@@ -10,6 +10,7 @@ from codex_orchestrator.context_handoffs import handoff_resource
 from codex_orchestrator.context_models import ContextLimits, ContextPackage, ContextResource
 from codex_orchestrator.coordination_store import design_fingerprint
 from codex_orchestrator.design_models import Assignment, DesignSession
+from codex_orchestrator.design_validation import SUMMARY_KINDS, project_path, upstream_parts
 
 
 def build_context(
@@ -54,24 +55,63 @@ def build_context(
                     status="pending",
                 )
             )
+    selected = {}
+    project = Path(state.project)
+    producers = {t.id: t for t in design.tasks}
     for reference in task.context:
-        if reference.kind != "task_output":
+        if reference.kind == "upstream_file":
+            producer, name = upstream_parts(reference.reference)
+            choices = selected.setdefault(producer, [])
+            upstream = producers.get(producer)
+            matching = any(
+                r.kind in SUMMARY_KINDS
+                and r.reference == producer
+                and (r.required or not reference.required)
+                for r in task.context
+            )
+            if (
+                upstream is None
+                or not matching
+                or project_path(project, name)
+                not in {project_path(project, p) for p in upstream.owned_paths}
+            ):
+                resources.append(
+                    ContextResource(
+                        kind="upstream_file",
+                        reference=name,
+                        required=reference.required,
+                        reason="File is not owned by the declared handoff producer.",
+                        missing_action="Correct the approved assignment context.",
+                        status="excluded",
+                    )
+                )
+            else:
+                choices.append((name, reference))
+    for reference in task.context:
+        if reference.kind not in SUMMARY_KINDS:
             continue
         handoff = handoff_resource(state, task, reference, path, limits)
         resources.append(handoff)
         if handoff.status == "included":
             producer = next(t for t in design.tasks if t.id == reference.reference)
+            chosen = selected.get(producer.id)
+            if chosen is None:
+                chosen = (
+                    [(p, reference) for p in producer.owned_paths]
+                    if reference.kind == "task_output"
+                    else []
+                )
             resources.extend(
                 ContextResource(
                     kind="upstream_file",
                     reference=p,
-                    required=reference.required,
+                    required=selection.required,
                     missing_action="Restore the producer's output or rerun and verify it.",
-                    reason=f"Current source handed off by {producer.id}",
+                    reason=f"Current source handed off by {producer.id}: {selection.reason}",
                     source_run_id=handoff.source_run_id,
                     status="pending",
                 )
-                for p in producer.owned_paths
+                for p, selection in chosen
             )
     resources.extend(
         ContextResource(
@@ -120,7 +160,9 @@ def _resolve_resources(package, project, resources):
     resources.sort(key=lambda item: not item.required)
     unique = {}
     for item in resources:
-        if item.kind == "task_output" or item.status == "unconfigured":
+        if item.status == "excluded":
+            key = (item.kind, item.reference, "excluded")
+        elif item.kind == "task_output" or item.status == "unconfigured":
             key = (item.kind, item.reference)
         else:
             try:
@@ -130,7 +172,11 @@ def _resolve_resources(package, project, resources):
         if key in unique:
             existing = unique[key]
             existing.required |= item.required
-            existing.aliases.append(f"{item.kind}: {item.reference}")
+            alias = f"{item.kind}: {item.reference}"
+            if item.source_run_id and existing.source_run_id not in {None, item.source_run_id}:
+                alias += f" (source run {item.source_run_id})"
+            existing.source_run_id = existing.source_run_id or item.source_run_id
+            existing.aliases.append(alias)
         else:
             unique[key] = item
     for index, item in enumerate(unique.values()):

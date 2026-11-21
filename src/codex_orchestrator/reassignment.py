@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from codex_orchestrator.design import check_source
 from codex_orchestrator.design_models import DesignRevision
-from codex_orchestrator.design_validation import validate_design
+from codex_orchestrator.design_validation import SUMMARY_KINDS, validate_design
 from codex_orchestrator.execution import is_busy
 
 
@@ -42,7 +42,7 @@ def reassign(state, path, task_id, agent_id, *, new_role=None, model=None):
     # Ensure upstream producers declare the recipient of their required handoff.
     by_id = {t.id: t for t in design.tasks}
     for item in task.context:
-        if item.kind == "task_output" and item.required:
+        if item.kind in SUMMARY_KINDS and (item.required or item.kind == "task_summary"):
             producer = by_id[item.reference]
             if agent_id not in producer.handoff_to:
                 producer.handoff_to.append(agent_id)

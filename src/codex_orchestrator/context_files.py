@@ -39,12 +39,27 @@ def is_private_path(path: Path) -> bool:
         or name in _PRIVATE_NAMES
         or any(
             part.endswith(
-                (".codex-sessions.json", ".codex-sessions.lock", ".codex-turns", ".compact-plans")
+                (
+                    ".codex-sessions.json",
+                    ".codex-sessions.lock",
+                    ".codex-turns",
+                    ".compact-plans",
+                    ".runs",
+                    ".review-inputs",
+                    ".chat.json",
+                    ".reviews.json",
+                    ".coordination",
+                )
             )
             for part in path.parts
         )
         or path.suffix.lower() in {".pem", ".key", ".p12", ".pfx"}
         or bool(set(path.parts) & _PRIVATE_DIRS)
+        or any(
+            part == ".codex"
+            and following in {"sessions", "archived_sessions", "logs", "history.jsonl"}
+            for part, following in zip(path.parts, path.parts[1:], strict=False)
+        )
     )
 
 
@@ -85,6 +100,15 @@ def read_file(project: Path, item: ContextResource, limits: ContextLimits) -> Co
                 raise ValueError("Only regular text files can be supplied.")
             item.size_bytes = info.st_size
             raw = stream.read(limits.max_file_bytes + 1)
+            final = os.fstat(stream.fileno())
+            if (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns) != (
+                final.st_dev,
+                final.st_ino,
+                final.st_size,
+                final.st_mtime_ns,
+                final.st_ctime_ns,
+            ) or len(raw) != min(info.st_size, limits.max_file_bytes + 1):
+                raise ValueError("File changed while being read; refresh the context.")
         truncated = len(raw) > limits.max_file_bytes
         included = raw[: limits.max_file_bytes]
         text = codecs.getincrementaldecoder("utf-8")().decode(included, final=not truncated)

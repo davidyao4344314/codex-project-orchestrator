@@ -1,8 +1,11 @@
 """Prepare worker requests and finalize observed, structured worker artifacts."""
 
+import hashlib
 import json
+from pathlib import Path
 
-from codex_orchestrator.context_files import resolve_file, sensitive_text
+from codex_orchestrator.context_files import read_file, resolve_file, sensitive_text
+from codex_orchestrator.context_models import ContextPackage
 from codex_orchestrator.worker_audit import WorkspaceSnapshot, snapshot_workspace, workspace_changes
 from codex_orchestrator.worker_models import WorkerResult, WorkerSpec, artifact_digest
 from codex_orchestrator.worker_profiles import validate_owned_paths, worker_spec
@@ -18,13 +21,76 @@ def prepare_worker(package, project, folder):
             "project_file",
             "owned_file",
             "upstream_file",
+            "instruction",
+            "skill",
         }:
-            name = str(resolve_file(project, resource).relative_to(project.resolve()))
+            resolved = resolve_file(project, resource)
+            if not resolved.is_relative_to(project.resolve()):
+                continue  # External skills are checked separately before dispatch.
+            name = str(resolved.relative_to(project.resolve()))
             if name not in spec.audit_paths:
                 spec.audit_paths.append(name)
     spec.save(folder / "worker_spec.json")
     (folder / "result_schema.json").write_text(json.dumps(WorkerResult.model_json_schema()))
     return spec
+
+
+def prompt_digest(prompt):
+    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+
+
+def saved_context(run, folder):
+    package = ContextPackage.load(folder / "context.json")
+    if (
+        package.digest() != run.context_digest
+        or package.task_id != run.task_id
+        or package.agent_id != run.agent_id
+        or package.requested_model != run.model
+        or package.design_revision != run.revision
+        or (run.prompt_digest and prompt_digest(run.prompt) != run.prompt_digest)
+    ):
+        raise ValueError("Saved context or prompt changed; rebuild the assignment before dispatch.")
+    package.require_ready()
+    return package
+
+
+def validate_context_inputs(run, spec, project, folder, before):
+    """Fail before inference if the canonical package no longer matches live inputs."""
+    package = saved_context(run, folder)
+    project = Path(project).resolve()
+    for resource in package.resources:
+        if resource.kind == "task_output":
+            continue
+        if resource.status == "excluded" and (
+            resource.kind == "owned_file"
+            or any(alias.startswith("owned_file: ") for alias in resource.aliases)
+        ):
+            raise ValueError(f"Owned input {resource.reference} could not be safely supplied.")
+        if resource.status not in {"included", "missing"}:
+            continue
+        resolved = resolve_file(project, resource)
+        if not resolved.is_relative_to(project):
+            if resource.status == "included":
+                observed = read_file(project, resource.model_copy(deep=True), package.limits)
+                if observed.status != "included" or observed.sha256 != resource.sha256:
+                    raise ValueError(f"Skill changed before execution: {resource.reference}")
+            continue
+        name = str(resolved.relative_to(project))
+        observed = before.files.get(name)
+        if resource.status == "included" and (
+            observed is None
+            or not observed.exists
+            or observed.marker
+            or observed.sha256 != resource.sha256
+            or name not in spec.audit_paths
+        ):
+            raise ValueError(f"Context input changed before execution: {resource.reference}")
+        if (
+            resource.status == "missing"
+            and name in spec.owned_paths
+            and (observed is None or observed.exists)
+        ):
+            raise ValueError(f"Owned file appeared before execution: {resource.reference}")
 
 
 def worker_prompt(spec, package, previous_runs, recovery_brief=None, branch=None):
@@ -121,6 +187,8 @@ def verified_artifacts(run, folder):
         )
     ):
         raise ValueError("Worker artifacts changed; investigate before accepting verification.")
+    if run.prompt_digest:
+        saved_context(run, folder)
     return spec, after
 
 

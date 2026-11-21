@@ -30,6 +30,7 @@ class Run(SessionData):
     feedback_id: str | None = None
     model: str | None = None
     prompt: str
+    prompt_digest: str | None = None
     error: str | None = None
     verified: bool = False
     worker_contract_version: Literal[1] | None = None

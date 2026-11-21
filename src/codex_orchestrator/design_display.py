@@ -143,7 +143,7 @@ def show_design(state: DesignSession) -> None:
                             if project_path(project, item.reference).is_file()
                             else "missing"
                         )
-                    elif item.kind == "task_output":
+                    elif item.kind in {"task_output", "task_summary", "upstream_file"}:
                         availability = "pending upstream task"
                     requirement = "required" if item.required else "optional"
                     typer.echo(

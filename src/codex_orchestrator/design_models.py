@@ -50,7 +50,15 @@ class Agent(SessionData):
 
 
 class ContextReference(SessionData):
-    kind: Literal["requirement", "component", "interface", "project_file", "task_output"]
+    kind: Literal[
+        "requirement",
+        "component",
+        "interface",
+        "project_file",
+        "task_output",
+        "task_summary",
+        "upstream_file",
+    ]
     reference: Text
     reason: Text
     required: bool
