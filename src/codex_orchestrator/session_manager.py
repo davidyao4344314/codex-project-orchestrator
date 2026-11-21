@@ -65,6 +65,8 @@ class TurnEvents:
     completed: bool = False
     failed: bool = False
     invalid_thread: bool = False
+    tool_items: set[str] = field(default_factory=set)
+    command_items: set[str] = field(default_factory=set)
 
     def observe(self, event):
         if not isinstance(event, dict):
@@ -79,6 +81,13 @@ class TurnEvents:
         elif kind == "turn.completed":
             self.completed = True
             self.usage = TokenUsage.from_event(event.get("usage"))
+        elif kind == "item.completed":
+            item = event.get("item")
+            if isinstance(item, dict) and isinstance(item.get("id"), str):
+                if item.get("type") in {"command_execution", "mcp_tool_call", "web_search"}:
+                    self.tool_items.add(item["id"])
+                if item.get("type") == "command_execution":
+                    self.command_items.add(item["id"])
         elif kind in {"turn.failed", "error"}:
             self.failed = True
 
@@ -122,6 +131,8 @@ class TurnRecord(SessionData):
     context_bytes: int | None = Field(default=None, ge=0)
     reused_context_files: int = Field(default=0, ge=0)
     usage: TokenUsage | None = None
+    observed_tool_calls: int | None = Field(default=None, ge=0)
+    observed_commands: int | None = Field(default=None, ge=0)
     session_reusable: bool = False
 
 
@@ -185,6 +196,9 @@ class ManagedTurn:
         self.record.elapsed_seconds = monotonic() - self.started
         self.record.thread_id = self.events.thread
         self.record.usage = self.events.usage
+        if self.events.completed:
+            self.record.observed_tool_calls = len(self.events.tool_items)
+            self.record.observed_commands = len(self.events.command_items)
         if self.persistent:
             with _registry_lock(self.checkpoint):
                 registry = read_registry(self.checkpoint)

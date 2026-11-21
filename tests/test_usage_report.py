@@ -27,6 +27,9 @@ def record(path, project, role, raw, *, persistent=True, task_id=None, stage_id=
             "thread_id": turn.resume_id or str(uuid4()),
         }
     )
+    event = {"type": "item.completed", "item": {"type": "command_execution", "id": "c1"}}
+    turn.events.observe(event)
+    turn.events.observe(event)  # Duplicate event IDs must not inflate the count.
     turn.events.observe({"type": "turn.completed", "usage": raw})
     turn.finish("completed")
     return turn
@@ -76,6 +79,9 @@ def test_usage_report_aggregates_current_and_archived_deliveries_without_inferen
     assert report["total"]["token_totals"]["cached_input_tokens"] == 160
     assert report["total"]["token_totals"]["output_tokens"] == 80
     assert report["total"]["token_coverage_turns"]["cached_input_tokens"] == 2
+    assert report["total"]["observed_tool_calls"] == 4
+    assert report["total"]["observed_commands"] == 4
+    assert report["total"]["tool_event_coverage_turns"] == 4
     assert report["by_role"]["reviewer"]["token_totals"]["input_tokens"] is None
     assert report["by_task"]["backend"]["token_totals"]["input_tokens"] == 200
     assert len(report["turns"]) == 4

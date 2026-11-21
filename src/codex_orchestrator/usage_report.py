@@ -35,6 +35,8 @@ def stats(records):
         ]
         totals[field] = sum(values) if values else None
         coverage[field] = len(values)
+    tools = [r.observed_tool_calls for r in records if r.observed_tool_calls is not None]
+    commands = [r.observed_commands for r in records if r.observed_commands is not None]
     return {
         "attempts": len(records),
         "statuses": {
@@ -55,6 +57,9 @@ def stats(records):
         "reused_context_files": sum(r.reused_context_files for r in records),
         "token_totals": totals,
         "token_coverage_turns": coverage,
+        "observed_tool_calls": sum(tools) if tools else None,
+        "observed_commands": sum(commands) if commands else None,
+        "tool_event_coverage_turns": len(tools),
     }
 
 
@@ -76,6 +81,7 @@ def usage_report(source: Path, *, details=False):
             "Observed CLI events, not account billing. Missing usage is unknown, not zero. "
             "Cached input and reasoning counts are subsets, not additional totals. "
             "Fresh/resumed groups are observational, not a controlled benchmark. "
+            "Tool counts cover recognized completed CLI items only. "
             "Only managed planning, worker and reviewer turns are counted; earlier "
             "and ad-hoc calls are not reconstructed."
         ),
