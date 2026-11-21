@@ -16,6 +16,7 @@ from codex_orchestrator.design_models import (
 )
 from codex_orchestrator.design_validation import context_blockers, validate_design
 from codex_orchestrator.interactive import READ_ONLY, ask, model_label
+from codex_orchestrator.model_allocation import revision_models
 from codex_orchestrator.session import Answer, PlanningSession
 from codex_orchestrator.session_manager import digest, managed_turn
 from codex_orchestrator.setup import ensure_codex
@@ -116,13 +117,21 @@ def prepare_design(
             source_revision=source.approved_revision,
             source=source.revisions[-1],
             source_digest=source_digest(source.revisions[-1]),
-            architect_model=source.planning_model,
+            architect_model=(
+                source.model_policy.strong_reasoning
+                if source.model_policy
+                else source.planning_model
+            ),
+            model_policy=source.model_policy,
+            auto_model_allocation=source.model_policy is not None,
+            models_configured=source.model_policy is not None,
         )
     new = not output.exists()
     if architect_model is not None:
         state.architect_model = normalize_model(architect_model)
     if agent_model is not None:
         state.default_agent_model = normalize_model(agent_model)
+        state.auto_model_allocation = False
     if architect_model is not None or agent_model is not None:
         state.models_configured = architect_model is not None or state.models_configured
     if new:
@@ -215,17 +224,12 @@ def _generate_design(state, output, timeout, data, turn):
             state.save(output)
             raise
         state.validation_feedback = []
-        previous_models = state.revisions[-1].agent_models if state.revisions else {}
-        allocations = {
-            agent.id: previous_models.get(agent.id, state.default_agent_model)
-            for agent in reply.design.agents
-        }
         state.revisions.append(
             DesignRevision(
                 design=reply.design,
                 requested_model=state.architect_model,
                 reported_model=actual_model,
-                agent_models=allocations,
+                **revision_models(state, reply.design),
                 elapsed_seconds=elapsed,
             )
         )
@@ -263,6 +267,7 @@ def choose_design_models(state: DesignSession, output: Path, *, allocations: boo
         state.architect_model = architect
         state.models_configured = True
         state.default_agent_model = selected["default agent"]
+        state.auto_model_allocation = False
         check_source(state)
         state.save(output)
 
@@ -277,7 +282,7 @@ def update_design_models(
     current = state.revisions[-1]
     if set(allocations) != set(current.agent_models):
         raise ValueError("Choose a model for every assigned agent.")
-    if current.agent_models != allocations:
+    if current.agent_models != allocations or current.task_models is not None:
         state.revisions.append(
             DesignRevision(
                 design=current.design,
@@ -286,12 +291,14 @@ def update_design_models(
                 agent_models=allocations,
                 elapsed_seconds=0,
                 origin="model_allocation",
+                allocation_rationale="Manual agent model choices override automatic allocation.",
             )
         )
         state.phase = "review"
         state.approved_revision = None
     state.architect_model = architect
     state.models_configured = True
+    state.auto_model_allocation = False
     state.save(output)
 
 

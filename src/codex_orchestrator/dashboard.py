@@ -63,7 +63,7 @@ def ask_agent(state, path, task, question):
         history.pop(0)
         history_omitted += 1
     reported = []
-    model = state.revisions[-1].agent_models[task.agent_id]
+    model = state.revisions[-1].model_for_task(task)
     package = build_context(state, task, path, purpose="discussion")
     if package.size_bytes() > package.limits.max_package_bytes:
         raise ValueError(
@@ -259,7 +259,7 @@ def workspace(state, path, action):
     )
     task = by_id[selected]
     agent = agents[task.agent_id]
-    model = state.revisions[-1].agent_models[agent.id] or "Codex default"
+    model = state.revisions[-1].model_for_task(task) or "Codex default"
     status = latest[task.id].status if task.id in latest else "Not started"
     st.caption(f"{agent.role} · {model} · {task.workstream} · {status}")
     st.caption(

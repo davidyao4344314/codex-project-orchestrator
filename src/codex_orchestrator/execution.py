@@ -87,7 +87,7 @@ def start_run(state, path, task, context=None):
         agent_id=task.agent_id,
         revision=len(state.revisions),
         prompt="",
-        model=state.revisions[-1].agent_models[task.agent_id],
+        model=state.revisions[-1].model_for_task(task),
     )
     folder = run_directory(path) / run.id
     lock = project_lock(state.project)

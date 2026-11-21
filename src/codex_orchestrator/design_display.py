@@ -53,6 +53,8 @@ def show_design(state: DesignSession) -> None:
     else:
         typer.echo(f"Architect call time: {revision.elapsed_seconds:.1f}s")
     typer.echo(design.overview)
+    if revision.allocation_rationale:
+        typer.echo(revision.allocation_rationale)
     lines("\nRepository findings", design.repository_findings)
     typer.echo("\nComponent structure")
     for component in design.components:
@@ -79,7 +81,8 @@ def show_design(state: DesignSession) -> None:
         selected = revision.agent_models[agent.id] or "Codex configured default"
         typer.echo(f"  {agent.id} — {agent.role}")
         typer.echo(f"    Responsibility: {agent.responsibility}")
-        typer.echo(f"    Selected model: {selected}")
+        label = "Default model" if revision.task_models is not None else "Selected model"
+        typer.echo(f"    {label}: {selected}")
         typer.echo(f"    Recommended capability: {agent.model_capability} — {agent.model_reason}")
         lines("    Boundaries", agent.exclusions)
         assigned = [
@@ -116,6 +119,9 @@ def show_design(state: DesignSession) -> None:
                     continue
                 typer.echo(f"\n  Task {task.id} — {task.title} [agent {task.agent_id}]")
                 typer.echo(f"    {task.description}")
+                typer.echo(
+                    f"    Selected task model: {revision.model_for_task(task) or 'Codex default'}"
+                )
                 typer.echo(
                     f"    Requirements: {', '.join(f'R{n}' for n in task.requirement_ids)}; "
                     f"components: {', '.join(task.component_ids)}; difficulty: {task.difficulty}"

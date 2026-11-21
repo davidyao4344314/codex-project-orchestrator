@@ -114,6 +114,18 @@ def run_review(
     project = Path(DesignSession.load(path).project).resolve()
     with git.writer(project):
         policy = store.load_policy(path)
+        state = DesignSession.load(path)
+        reviewer_model = policy.reviewer_model
+        if state.model_policy and not store.policy_path(path).exists():
+            complex_stage = any(
+                task.stage_id == reviewed.stage_id and task.difficulty == "complex"
+                for task in state.revisions[-1].design.tasks
+            )
+            reviewer_model = (
+                state.model_policy.strong_reasoning
+                if complex_stage
+                else state.model_policy.standard
+            )
         current = git._preview(path, reviewed.stage_id, reviewed.paths)
         if current.fingerprint != reviewed.fingerprint:
             raise ValueError("Files or evidence changed. Build a new preview.")
@@ -123,7 +135,7 @@ def run_review(
             stage_id=reviewed.stage_id,
             fingerprint=reviewed.fingerprint,
             source="reviewer",
-            requested_model=policy.reviewer_model,
+            requested_model=reviewer_model,
             input_digest=hashlib.sha256(payload.encode()).hexdigest(),
             result=store.ReviewDecision(
                 decision="blocked",
@@ -157,7 +169,7 @@ def run_review(
             path,
             project,
             "reviewer",
-            policy.reviewer_model,
+            reviewer_model,
             reviewed.fingerprint,
             persistent=False,
             stage_id=reviewed.stage_id,
@@ -166,7 +178,7 @@ def run_review(
                 project,
                 prompt,
                 store.ReviewDecision,
-                model=policy.reviewer_model,
+                model=reviewer_model,
                 on_response=reported.append,
                 turn=turn,
             )
@@ -180,7 +192,7 @@ def run_review(
                 stage_id=reviewed.stage_id,
                 fingerprint=reviewed.fingerprint,
                 source="reviewer",
-                requested_model=policy.reviewer_model,
+                requested_model=reviewer_model,
                 reported_model=reported[-1] if reported else None,
                 input_digest=hashlib.sha256(payload.encode()).hexdigest(),
                 input_id=pending.id,

@@ -296,6 +296,12 @@ def create_correction(source, state, path, target, old_run, note, history_file, 
     session.brief, session.revisions, session.approved_revision = brief, [source_revision], 1
     session.answers = [Answer(prompt="Targeted correction", response=note)]
     session.previous_cycle_context = f"Same cycle {cycle.number}; previous delivery: {source.name}."
+    previous_models = state.revisions[-1].task_models
+    task_models = (
+        {t.id: previous_models.get(t.id, models[t.agent_id]) for t in design.tasks}
+        if previous_models is not None
+        else None
+    )
     new_state = DesignSession(
         project=state.project,
         source_file=str(new_source),
@@ -304,6 +310,8 @@ def create_correction(source, state, path, target, old_run, note, history_file, 
         source_digest=source_digest(source_revision),
         architect_model=state.architect_model,
         default_agent_model=state.default_agent_model,
+        model_policy=state.model_policy,
+        auto_model_allocation=state.auto_model_allocation,
         models_configured=True,
         context_limits=state.context_limits,
         phase="review",
@@ -312,6 +320,7 @@ def create_correction(source, state, path, target, old_run, note, history_file, 
                 origin="correction",
                 design=design,
                 agent_models=models,
+                task_models=task_models,
                 elapsed_seconds=0,
             )
         ],

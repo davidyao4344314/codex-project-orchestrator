@@ -159,6 +159,7 @@ def resume(
                 )
         if route is not None:
             session.planning_route = route
+            session.compact_fallback = False
         if intake_model is not None or planning_model is not None or route is not None:
             session.save(session_file)
         run_session(session, session_file)
@@ -200,11 +201,14 @@ def design(
     show: Annotated[
         bool, typer.Option(help="Display a saved design without a model call.")
     ] = False,
+    auto_models: Annotated[
+        bool, typer.Option(help="Apply the approved model palette before delivery starts.")
+    ] = False,
 ) -> None:
     """Design technical structure and agent responsibilities from approved requirements."""
     try:
         if show:
-            if model is not None or agent_model is not None:
+            if model is not None or agent_model is not None or auto_models:
                 raise typer.BadParameter(
                     "--show displays saved model choices. Omit model overrides."
                 )
@@ -220,9 +224,15 @@ def design(
         from codex_orchestrator.cycle_manager import require_active
 
         require_active(session_file)
+        if auto_models and agent_model is not None:
+            raise ValueError("Choose automatic models or --agent-model, not both.")
         state, path = prepare_design(
             session_file, output, architect_model=model, agent_model=agent_model
         )
+        if auto_models:
+            from codex_orchestrator.model_allocation import apply_automatic_models
+
+            apply_automatic_models(state, path, keep_architect=model is not None)
         run_design(state, path, timeout)
     except (OSError, UnicodeError, ValueError, CodexError) as exc:
         typer.echo(f"Could not create technical design: {exc}", err=True)

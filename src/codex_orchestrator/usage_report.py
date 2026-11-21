@@ -78,6 +78,14 @@ def usage_report(source: Path, *, details=False):
         "by_role": _groups(records, "role"),
         "by_stage": _groups(records, "stage_id"),
         "by_task": _groups(records, "task_id"),
+        "by_requested_model": {
+            **_groups(records, "requested_model"),
+            **(
+                {"Codex default": stats([r for r in records if r.requested_model is None])}
+                if any(r.requested_model is None for r in records)
+                else {}
+            ),
+        },
         "by_session_mode": {
             "fresh": stats([r for r in records if r.requested_thread_id is None]),
             "resumed": stats([r for r in records if r.requested_thread_id is not None]),

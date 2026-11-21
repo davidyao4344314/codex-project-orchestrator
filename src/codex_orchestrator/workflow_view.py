@@ -59,7 +59,7 @@ def workflow_view(state, path, action):
         [
             {
                 "Agent": agent.role,
-                "Selected model": revision.agent_models[agent.id] or "Codex default",
+                "Default model": revision.agent_models[agent.id] or "Codex default",
                 "Capability": agent.model_capability,
                 "Responsibility": agent.responsibility,
             }
@@ -138,6 +138,7 @@ def workflow_view(state, path, action):
                     continue
                 st.markdown(f"**{task.title}**")
                 st.caption(f"Owner · {task.agent_id}  |  Difficulty · {task.difficulty}")
+                st.caption(f"Task model · {revision.model_for_task(task) or 'Codex default'}")
                 st.write(task.description)
                 if reason := revision.task_allocation_reasons.get(task.id):
                     st.caption("Assignment reason · " + reason)

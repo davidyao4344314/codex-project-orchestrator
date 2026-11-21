@@ -122,6 +122,7 @@ class PlanningSession(SessionData):
     planning_model: Text | None = None
     planning_route: PlanningRoute = PlanningRoute.AUTO
     recommended_route: Literal["compact", "standard"] | None = None
+    compact_fallback: bool = False
     model_policy: ModelPolicy | None = None
     models_configured: bool = False
     response_sources: list[ResponseSource] = Field(default_factory=list)

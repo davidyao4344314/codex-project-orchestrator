@@ -9,7 +9,7 @@ from codex_orchestrator import compact_planning, design, interactive
 from codex_orchestrator.cli import app
 from codex_orchestrator.codex import CodexError
 from codex_orchestrator.design_models import DesignSession
-from codex_orchestrator.session import PlanningRoute, PlanningSession
+from codex_orchestrator.session import ModelPolicy, PlanningRoute, PlanningSession
 
 
 def start(approved_session, technical_payload, monkeypatch, *, change=None):
@@ -40,6 +40,11 @@ def test_simple_route_uses_one_combined_call_and_manual_approvals(
     approved_session, technical_payload, monkeypatch
 ):
     state, path, calls, _ = start(approved_session, technical_payload, monkeypatch)
+    state.model_policy = ModelPolicy(
+        routine="small-model", standard="standard-model", strong_reasoning="strong-model"
+    )
+    state.planning_model = state.model_policy.standard
+    state.save(path)
     interactive.generate_plan(state, path)
     assert len(calls) == 2  # intake plus combined planning; no extra architecture inference
     assert state.phase == "review" and state.approved_revision is None
@@ -53,6 +58,8 @@ def test_simple_route_uses_one_combined_call_and_manual_approvals(
     assert "no additional architect call" in result.output
     technical = DesignSession.load(path.with_suffix(".design.json"))
     assert technical.phase == "approved" and technical.revisions[0].origin == "compact"
+    assert technical.revisions[0].task_models == {"implement": "small-model"}
+    assert calls[1][0][calls[1][0].index("--model") + 1] == "standard-model"
     assert technical.stage_reviews == []  # each stage still needs explicit approval
     assert len(calls) == 2
 
@@ -70,7 +77,8 @@ def test_complex_compact_result_requires_explicit_standard_retry(
         interactive.generate_plan(state, path)
     assert len(calls) == 2
     saved = PlanningSession.load(path)
-    assert saved.planning_route == PlanningRoute.STANDARD
+    assert saved.planning_route == PlanningRoute.AUTO and saved.compact_fallback
+    assert compact_planning.selected_route(saved) == "standard"
     assert saved.phase == "planning" and saved.revisions == []
     replies.append(draft(saved.brief.requirements[0]))
     interactive.generate_plan(saved, path)
@@ -90,3 +98,17 @@ def test_compact_proposal_must_match_the_approved_plan(
     with pytest.raises(CodexError, match="does not match"):
         design.prepare_design(path, None, architect_model=None, agent_model=None)
     assert not path.with_suffix(".design.json").exists()
+
+
+def test_auto_route_keeps_standard_planner_for_large_briefs(
+    approved_session, technical_payload, monkeypatch
+):
+    state, path, calls, replies = start(approved_session, technical_payload, monkeypatch)
+    # Even an optimistic intake recommendation cannot bypass the local size guard.
+    state.brief.requirements = [f"Requirement {n}" for n in range(5)]
+    state.save(path)
+    assert compact_planning.selected_route(state) == "standard"
+    replies[:] = [{"question": "Which requirements are essential?", "plan": None}]
+    interactive.generate_plan(state, path)
+    assert len(calls) == 2 and state.pending_question
+    assert "CompactReply" not in calls[1][1]

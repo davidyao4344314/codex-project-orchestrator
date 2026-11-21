@@ -64,8 +64,14 @@ print(json.dumps({"type":"turn.completed","usage":{
 """
 
 
-def launch(approved_session, technical_payload, monkeypatch, area, mode="completed"):
+def launch(approved_session, technical_payload, monkeypatch, area, mode="completed", policy=None):
     source, _ = approved_session
+    if policy:
+        from codex_orchestrator.session import PlanningSession
+
+        session = PlanningSession.load(source)
+        session.model_policy = policy
+        session.save(source)
     state, path = prepare_design(source, None, architect_model=None, agent_model=None)
     design = TechnicalDesign.model_validate(technical_payload)
     task = design.tasks[0]
@@ -73,9 +79,14 @@ def launch(approved_session, technical_payload, monkeypatch, area, mode="complet
         task.owned_paths = []
     else:
         task.workstream = "general" if area == "general" else Workstream(area)
-    state.revisions.append(
-        DesignRevision(design=design, agent_models={"developer": "worker-model"}, elapsed_seconds=0)
+    from codex_orchestrator.model_allocation import revision_models
+
+    choices = (
+        revision_models(state, design)
+        if policy
+        else {"agent_models": {"developer": "worker-model"}}
     )
+    state.revisions.append(DesignRevision(design=design, elapsed_seconds=0, **choices))
     state.phase, state.approved_revision = "approved", 1
     state.save(path)
     review_stage(state, path, "core", "", approved=True)

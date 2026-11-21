@@ -24,7 +24,7 @@ def assess_job(state: DesignSession) -> JobAssessment:
         (
             i
             for i in reversed(range(len(state.revisions)))
-            if state.revisions[i].origin == "architect"
+            if state.revisions[i].origin in {"architect", "compact"}
         ),
         0,
     )

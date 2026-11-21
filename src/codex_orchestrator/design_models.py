@@ -7,7 +7,7 @@ from pydantic import Field, model_validator
 
 from codex_orchestrator.context_models import ContextLimits
 from codex_orchestrator.models import PlanContent, Text
-from codex_orchestrator.session import Answer, Revision, ScopedTask, SessionData
+from codex_orchestrator.session import Answer, ModelPolicy, Revision, ScopedTask, SessionData
 
 Items = Annotated[list[Text], Field(min_length=1)]
 
@@ -134,13 +134,29 @@ class DesignRevision(SessionData):
     task_allocation_reasons: dict[str, str] = Field(default_factory=dict)
     # Allocation is local user configuration, separate from AI capability recommendations.
     agent_models: dict[str, Text | None]
+    task_models: dict[str, Text | None] | None = None
     elapsed_seconds: float = Field(ge=0)
 
     @model_validator(mode="after")
     def validate_allocations(self) -> Self:
         if set(self.agent_models) != {agent.id for agent in self.design.agents}:
             raise ValueError("Model allocations must cover exactly the design's agents")
+        if self.task_models is not None and set(self.task_models) != {
+            t.id for t in self.design.tasks
+        }:
+            raise ValueError("Task model allocations must cover exactly the design's tasks")
         return self
+
+    def model_for_task(self, task: Assignment) -> str | None:
+        if self.task_models is not None:
+            return self.task_models[task.id]
+        return self.agent_models[task.agent_id]
+
+
+def revision_digest(revision: DesignRevision) -> str:
+    # Preserve old approvals/branch fingerprints when loading legacy revisions.
+    exclude = {"task_models"} if revision.task_models is None else set()
+    return hashlib.sha256(revision.model_dump_json(exclude=exclude).encode()).hexdigest()
 
 
 def source_digest(revision: Revision) -> str:
@@ -172,6 +188,8 @@ class DesignSession(SessionData):
     source_digest: Text
     architect_model: Text | None = None
     default_agent_model: Text | None = None
+    model_policy: ModelPolicy | None = None
+    auto_model_allocation: bool = False
     models_configured: bool = False
     phase: Literal["draft", "review", "approved"] = "draft"
     answers: list[Answer] = Field(default_factory=list)

@@ -146,6 +146,7 @@ def revise_plan(session: PlanningSession, path: Path, feedback: str) -> None:
     session.answers.append(Answer(prompt="Plan revision request", response=feedback))
     session.phase = "intake"
     session.finish_intake = False
+    session.compact_fallback = False
     session.approved_revision = None
     session.save(path)
 

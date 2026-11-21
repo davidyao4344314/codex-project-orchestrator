@@ -37,6 +37,8 @@ def reassign(state, path, task_id, agent_id, *, new_role=None, model=None):
     if task.agent_id == agent_id:
         return
     task.agent_id = agent_id
+    if revision.task_models is not None:
+        revision.task_models[task.id] = revision.agent_models[agent_id]
     # Ensure upstream producers declare the recipient of their required handoff.
     by_id = {t.id: t for t in design.tasks}
     for item in task.context:

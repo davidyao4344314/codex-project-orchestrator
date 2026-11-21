@@ -12,7 +12,7 @@ from codex_orchestrator.codex import CodexError, codex_response
 from codex_orchestrator.design_models import DesignRevision, TechnicalDesign, source_digest
 from codex_orchestrator.design_validation import validate_design
 from codex_orchestrator.models import Text
-from codex_orchestrator.session import DraftPlan, PlanningRoute, Revision, ScopedTask, SessionData
+from codex_orchestrator.session import DraftPlan, Revision, ScopedTask, SessionData
 from codex_orchestrator.session_manager import managed_turn
 
 MAX_REQUIREMENTS = 4
@@ -46,7 +46,11 @@ class CompactProposal(SessionData):
 
 
 def selected_route(session):
-    if not session.brief or not 1 <= len(session.brief.requirements) <= MAX_REQUIREMENTS:
+    if (
+        session.compact_fallback
+        or not session.brief
+        or not 1 <= len(session.brief.requirements) <= MAX_REQUIREMENTS
+    ):
         return "standard"
     if session.planning_route == "auto":
         return session.recommended_route or "standard"
@@ -94,7 +98,7 @@ def proposal_path(source, revision, number):
 
 def use_standard(session, path, reason):
     # No hidden second request. Save the full-route choice and wait for explicit resume.
-    session.planning_route = PlanningRoute.STANDARD
+    session.compact_fallback = True
     session.recommended_route = "standard"
     session.save(path)
     raise CodexError(
@@ -178,6 +182,8 @@ def generate_compact_plan(session, path):
 
 
 def saved_compact_revision(state):
+    from codex_orchestrator.model_allocation import revision_models
+
     source = Path(state.source_file)
     file = proposal_path(source, state.source, state.source_revision)
     if not file.exists():
@@ -194,7 +200,7 @@ def saved_compact_revision(state):
     return DesignRevision(
         origin="compact",
         design=proposal.design,
-        agent_models={a.id: state.default_agent_model for a in proposal.design.agents},
+        **revision_models(state, proposal.design),
         requested_model=proposal.requested_model,
         reported_model=proposal.reported_model,
         elapsed_seconds=proposal.elapsed_seconds,

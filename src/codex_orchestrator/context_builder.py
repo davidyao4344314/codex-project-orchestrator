@@ -36,7 +36,7 @@ def build_context(
         design_fingerprint=design_fingerprint(state),
         task_id=task.id,
         agent_id=task.agent_id,
-        requested_model=state.revisions[-1].agent_models[task.agent_id],
+        requested_model=state.revisions[-1].model_for_task(task),
         purpose=purpose,
         metadata=metadata,
         limits=limits,

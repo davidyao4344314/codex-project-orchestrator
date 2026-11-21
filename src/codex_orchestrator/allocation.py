@@ -1,6 +1,5 @@
 """AI task allocation proposals within an unchanged task and stage graph."""
 
-import hashlib
 import json
 from pathlib import Path
 from time import monotonic
@@ -9,7 +8,13 @@ from pydantic import Field
 
 from codex_orchestrator.codex import codex_response
 from codex_orchestrator.design import check_source
-from codex_orchestrator.design_models import Agent, AgentPreference, DesignRevision, DesignSession
+from codex_orchestrator.design_models import (
+    Agent,
+    AgentPreference,
+    DesignRevision,
+    DesignSession,
+    revision_digest,
+)
 from codex_orchestrator.design_validation import validate_design
 from codex_orchestrator.execution import is_busy
 from codex_orchestrator.models import Text
@@ -49,7 +54,7 @@ class AllocationProposal(SessionData):
 
 
 def fingerprint(state: DesignSession) -> str:
-    return hashlib.sha256(state.revisions[-1].model_dump_json().encode()).hexdigest()
+    return revision_digest(state.revisions[-1])
 
 
 def proposal_path(path: Path) -> Path:
@@ -178,5 +183,6 @@ def apply_allocation(state, path, proposal):
         raise ValueError("Team settings changed. Generate a new proposal.")
     revision = allocated_revision(state, proposal)
     state.revisions.append(revision)
+    state.auto_model_allocation = False  # An explicit roster/model selection takes precedence.
     state.phase, state.approved_revision = "review", None
     state.save(path)

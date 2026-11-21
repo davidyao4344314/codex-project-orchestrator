@@ -80,6 +80,8 @@ def parse_offers(rows):
         ):
             continue
         label = row.get("displayName")
+        if isinstance(label, str):
+            label = "".join(c for c in label[:128] if c.isprintable()).strip()
         offers[model] = ModelOffer(
             model,
             label if isinstance(label, str) and label else model,
@@ -99,7 +101,6 @@ def discover_models(project: Path) -> list[ModelOffer]:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            bufsize=0,
         )
     except OSError as exc:
         raise CodexError("Could not start the local Codex model catalog.") from exc
@@ -109,11 +110,17 @@ def discover_models(project: Path) -> list[ModelOffer]:
             {
                 "id": 1,
                 "method": "initialize",
-                "params": {"clientInfo": {"name": "codex_orchestrator", "version": "0.1.0"}},
+                "params": {
+                    "clientInfo": {
+                        "name": "codex_orchestrator",
+                        "title": "Codex Project Orchestrator",
+                        "version": "0.1.0",
+                    }
+                },
             }
         )
         client.result(1)
-        client.send({"method": "initialized"})
+        client.send({"method": "initialized", "params": {}})
         rows, cursor = [], None
         for request_id in range(2, 7):
             params = {"limit": 100, "includeHidden": False}
@@ -131,7 +138,7 @@ def discover_models(project: Path) -> list[ModelOffer]:
                 if not offers:
                     raise CodexError("No selectable Codex models were reported.")
                 return offers
-            if not isinstance(cursor, str):
+            if not isinstance(cursor, str) or len(cursor) > 4096:
                 raise CodexError("The Codex model catalog returned an invalid cursor.")
         raise CodexError("The model catalog exceeds the supported page limit.")
     finally:

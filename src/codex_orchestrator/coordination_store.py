@@ -1,13 +1,12 @@
 """Revision-bound coordination checkpoints and human stage acceptance."""
 
-import hashlib
 import time
 from pathlib import Path
 from typing import Literal
 
 from pydantic import Field
 
-from codex_orchestrator.design_models import DesignSession
+from codex_orchestrator.design_models import DesignSession, revision_digest
 from codex_orchestrator.run_store import latest_runs
 from codex_orchestrator.session import SessionData
 
@@ -26,7 +25,7 @@ class CoordinationState(SessionData):
 
 
 def design_fingerprint(state: DesignSession) -> str:
-    return hashlib.sha256(state.revisions[-1].model_dump_json().encode()).hexdigest()
+    return revision_digest(state.revisions[-1])
 
 
 def checkpoint_path(state: DesignSession, path: Path) -> Path:
