@@ -919,14 +919,45 @@ optional inputs produce warnings. Uncreated owned files are expected. A skill wi
 location is reported as unconfigured; a configured missing skill blocks implementation.
 
 Default budgets are 128 KiB per package, 24 KiB per file, 16 KiB per handoff, and 32 unique
-resources. **Context budgets** lets you change byte limits for future builds. These are byte
-limits, not billed token counts. Narrow large assignments or raise appropriate limits when
-required resources do not fit; the builder never silently drops required content to launch work.
+resources. The package limit also caps the actual worker prompt. **Context budgets** lets
+you change byte limits for future builds, or use the terminal:
 
-Handoffs require the latest completed, user-verified prerequisite run from the current design
-revision and a declared recipient when the owner changes. They include its final summary and
-current produced source files. A failed newer attempt prevents reuse of an older success.
-Legacy runs can supply their summary from a bounded tail of existing Codex events.
+```sh
+orchestrator cycle context "$SESSION"
+orchestrator cycle context "$SESSION" --task ACTUAL_TASK_ID
+orchestrator cycle context "$SESSION" --task ACTUAL_TASK_ID --full
+orchestrator cycle context "$SESSION" --budget-kib 64 --file-kib 12 --handoff-kib 6
+```
+
+The first two commands list tasks and resource availability/hash metadata. `--full`
+shows the canonical snapshot, including content and applicable feedback. No Codex call
+runs. The last command changes budgets explicitly; defaults are deliberately large
+enough for required source and can be narrowed for a small project. These are byte
+limits, not billed token counts. Narrow large assignments or raise an appropriate
+limit when required resources do not fit; required content is never silently dropped.
+
+New designs use `task_summary` for the verified prerequisite summary and
+`upstream_file` with `producer-task-id:file-path` for only the named files needed.
+Legacy `task_output` references still include their owned files. Related corrections
+can retrieve the original merged summary without copying its entire history.
+Generated agent logs and conversations cannot enter context as ordinary project files.
+
+The full canonical snapshot remains on disk. The worker receives a compact JSON
+projection, with checks in one authoritative worker spec and only relevant task
+metadata. On a resumed worker session, identical large file contents are referenced
+by their verified current hash; changed required files, configured skills and required handoffs
+remain inline. Optional source previews can be referenced rather than copied when
+needed to fit the prompt budget. Included source hashes are checked immediately
+before launching Codex; changed inputs block dispatch. `cycle usage` reports measured
+prompt-byte savings and unchanged-file references alongside actual CLI token counters.
+See [context efficiency tests](docs/context-efficiency-testing.md).
+
+Live handoffs require the latest eligible completed, user-verified prerequisite run from
+the current design revision and a declared recipient when the owner changes. They supply
+the verified summary and selected current produced files. A failed newer attempt prevents
+reuse of an older success. Only correction checkpoints can restore a declared handoff
+from validated merged history. Legacy runs can supply their summary from a bounded tail
+of existing Codex events.
 
 Execution rebuilds the package under the project writer lock and saves `context.json` beside
 the run, with a digest recorded in run metadata. Use **Context package used for this run → Load

@@ -177,13 +177,36 @@ reads, handoff/event tails, resource counts and wire-package bytes are bounded. 
 that is missing, excluded, truncated or over budget prevents execution. Discussion can include
 missing-resource descriptions to clarify the plan, while over-budget metadata blocks inference.
 Same-assignment discussion history is limited to 12 messages and 16 KiB; omitted messages are
-counted. Retry prompts include at most three prior-run metadata records, not full transcripts.
+counted. Retry prompts include the latest relevant recovery summary and up to three observed
+commands, prioritizing failures, not full transcripts.
+
+New designs select prerequisite summaries and exact producer-owned files separately using
+`task_summary` and `upstream_file`. The validator checks the producer, dependency, recipient,
+file ownership and required-summary pairing. Legacy `task_output` remains readable and
+continues supplying all producer-owned files. A merged correction may retain an archived
+summary only when the original assignment declared it, the same agent is its recipient,
+and the original design and merge evidence are still valid in this cycle. Structured
+handoffs derive a compact summary from the verified report digest, not an arbitrary cached
+message or log. Branch eligibility and pending correction checks apply to handoffs.
 
 The execution adapter rebuilds canonical context under the writer lock, irrespective of a
 caller-provided preview. It saves a run-local context.json and its digest before starting Codex.
-The worker captures a bounded final message for future handoff; older runs use bounded event-tail
-fallback. Only latest completed/user-verified outputs in the current design revision are usable.
+The prompt also has an independent digest. Before subprocess launch, the adapter checks
+the package/prompt identities and current source hashes, including applicable instructions
+and configured skills. Saved context/prompt identities and audited project source hashes
+are checked again during verification/publication.
+Older handoff runs use bounded event-tail fallback. Only eligible latest verified outputs
+or explicitly verified merged archive handoffs are usable.
 Producer source files are current workspace contents, not a Git snapshot of the earlier run.
+
+`wire_context` projects the full snapshot into a compact worker payload: the worker spec
+owns checks and acceptance criteria, stage-wide peer metadata is not sent to implementation
+tasks, and empty/duplicate resource metadata is omitted. Same-thread prior context is
+validated by its saved run and digest. Only large unchanged in-project source files are
+replaced by exact path/hash references; a model can read them on demand if history was
+compacted. Current changes and required summaries/skills remain inline. Optional preview
+content is the first to be removed to meet the actual prompt cap. The complete canonical
+snapshot and exact transmitted prompt remain available for review.
 
 Context limits are additive session settings with defaults for older sessions. Changing limits
 only affects future packages, not design scope or existing run snapshots. Package hashes identify
@@ -192,6 +215,13 @@ Skill lookup supports local SKILL.md files under the project, ~/.codex/skills, ~
 and ~/.codex/plugins. Remote skill resources and recursive skill-resource bundling are not yet
 implemented. Context exclusion heuristics do not guarantee removal of every possible secret.
 The Codex sandbox and its own instruction loading remain separate from package selection.
+
+The terminal `cycle context` command inspects or explicitly updates limits without inference.
+The usage report records full-versus-compacted prompt bytes and repeated source references;
+these figures measure only the application payload and not the CLI schema, cached history
+or provider token billing. Independent review shares task definitions once, uses diffs and
+verified current-file references for tracked files, includes untracked file content, and
+caps command output excerpts while retaining exact commands and exit codes.
 
 ## Persistent Codex sessions and usage
 
