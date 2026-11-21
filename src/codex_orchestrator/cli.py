@@ -18,7 +18,7 @@ from codex_orchestrator.design_validation import validate_design
 from codex_orchestrator.interactive import run_session, start_session
 from codex_orchestrator.models import PlanningMode, ProjectPlan
 from codex_orchestrator.planner import template_plan
-from codex_orchestrator.session import PlanningSession
+from codex_orchestrator.session import PlanningRoute, PlanningSession
 from codex_orchestrator.setup import ensure_codex
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -60,6 +60,9 @@ def plan(
     ] = False,
     intake_model: Annotated[str | None, typer.Option(help="Model for interactive intake.")] = None,
     force: Annotated[bool, typer.Option(help="Replace an existing output file.")] = False,
+    route: Annotated[PlanningRoute, typer.Option(help="Interactive planning route.")] = (
+        PlanningRoute.AUTO
+    ),
 ) -> None:
     """Save a validated plan without implementing tasks."""
     if brief is not None and brief_file is not None:
@@ -68,6 +71,8 @@ def plan(
         raise typer.BadParameter("Provide either a brief argument or --brief-file, exactly one.")
     if not interactive and intake_model is not None:
         raise typer.BadParameter("--intake-model requires --interactive.")
+    if not interactive and route != PlanningRoute.AUTO:
+        raise typer.BadParameter("--route requires --interactive.")
     if interactive and (force or provider == PlanningMode.TEMPLATE):
         raise typer.BadParameter("Interactive mode uses Codex and creates a new session file.")
     provider = provider or (PlanningMode.CODEX if interactive else PlanningMode.TEMPLATE)
@@ -89,6 +94,7 @@ def plan(
                 intake_model=intake_model,
                 planning_model=model,
                 timeout=timeout,
+                route=route,
             )
             return
         output = output or Path("plans/plan.json")
@@ -134,6 +140,9 @@ def resume(
             "--planning-model", "--model", help="Change planning model; default resets it."
         ),
     ] = None,
+    route: Annotated[
+        PlanningRoute | None, typer.Option(help="Change the route for the next plan draft.")
+    ] = None,
 ) -> None:
     """Continue a saved interactive planning session."""
     try:
@@ -148,7 +157,9 @@ def resume(
                 setattr(
                     session, field, None if value.strip().casefold() == "default" else value.strip()
                 )
-        if intake_model is not None or planning_model is not None:
+        if route is not None:
+            session.planning_route = route
+        if intake_model is not None or planning_model is not None or route is not None:
             session.save(session_file)
         run_session(session, session_file)
     except (OSError, UnicodeError, ValueError, CodexError) as exc:

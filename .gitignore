@@ -13,6 +13,7 @@ plans/
 *.codex-sessions.json
 *.codex-sessions.lock
 *.codex-turns/
+*.compact-plans/
 .env
 .env.*
 auth.json

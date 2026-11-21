@@ -38,7 +38,9 @@ def is_private_path(path: Path) -> bool:
         or name.startswith(".env.")
         or name in _PRIVATE_NAMES
         or any(
-            part.endswith((".codex-sessions.json", ".codex-sessions.lock", ".codex-turns"))
+            part.endswith(
+                (".codex-sessions.json", ".codex-sessions.lock", ".codex-turns", ".compact-plans")
+            )
             for part in path.parts
         )
         or path.suffix.lower() in {".pem", ".key", ".p12", ".pfx"}

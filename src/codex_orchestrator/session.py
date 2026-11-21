@@ -1,5 +1,6 @@
 """Validated session data and atomic checkpoints for interactive planning."""
 
+from enum import StrEnum
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Annotated, Literal, Self
@@ -7,6 +8,12 @@ from typing import Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from codex_orchestrator.models import PlanContent, Task, Text, Workstream
+
+
+class PlanningRoute(StrEnum):
+    AUTO = "auto"
+    COMPACT = "compact"
+    STANDARD = "standard"
 
 
 class SessionData(BaseModel):
@@ -105,6 +112,8 @@ class PlanningSession(SessionData):
     project_name: Text
     intake_model: Text | None = None
     planning_model: Text | None = None
+    planning_route: PlanningRoute = PlanningRoute.AUTO
+    recommended_route: Literal["compact", "standard"] | None = None
     models_configured: bool = False
     response_sources: list[ResponseSource] = Field(default_factory=list)
     pending_question_model: Text | None = None

@@ -12,9 +12,10 @@ from codex_orchestrator.session import PlanningSession
 runner = CliRunner()
 
 
-def intake(requirement: str, question: str | None = None) -> dict:
+def intake(requirement: str, question: str | None = None, route="standard") -> dict:
     return {
         "question": question,
+        "recommended_route": route,
         "brief": {
             "goal": "Improve the activity editor",
             "users": ["Members"],

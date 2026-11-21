@@ -3,7 +3,7 @@
 import json
 from graphlib import TopologicalSorter
 from pathlib import Path
-from typing import Self
+from typing import Literal, Self
 from uuid import uuid4
 
 import typer
@@ -15,6 +15,7 @@ from codex_orchestrator.session import (
     Answer,
     Brief,
     DraftPlan,
+    PlanningRoute,
     PlanningSession,
     ResponseSource,
     Revision,
@@ -35,6 +36,7 @@ READ_ONLY = (
 class IntakeReply(SessionData):
     brief: Brief
     question: Text | None
+    recommended_route: Literal["compact", "standard"]
 
 
 class PlanningReply(SessionData):
@@ -57,6 +59,7 @@ def start_session(
     intake_model: str | None,
     planning_model: str | None,
     timeout: int,
+    route: PlanningRoute = PlanningRoute.AUTO,
 ) -> None:
     path = (output or Path("plans") / f"session-{uuid4().hex[:12]}.json").resolve()
     if path.exists():
@@ -72,6 +75,7 @@ def start_session(
         intake_model=intake_model,
         planning_model=planning_model,
         timeout=timeout,
+        route=route,
     )
     run_session(session, path)
 
@@ -86,6 +90,7 @@ def create_session(
     planning_model: str | None = None,
     timeout: int = 300,
     previous_cycle_context: str | None = None,
+    route: PlanningRoute = PlanningRoute.AUTO,
 ) -> PlanningSession:
     project = project.expanduser().resolve()
     if not project.is_dir():
@@ -97,6 +102,7 @@ def create_session(
         planning_model=planning_model,
         timeout=timeout,
         previous_cycle_context=previous_cycle_context,
+        planning_route=route,
         answers=[Answer(prompt="What would you like to build?", response=idea)],
     )
     session.save(path, new=True)
@@ -320,9 +326,16 @@ def _collect_brief(session, path, data, turn):
             "Do not add old feedback to scope unless the user requests it. "
             "Populate the brief from user answers and relevant project facts only.\n"
         )
+    route_instructions = (
+        " Recommend compact only for a well-defined small change or simple local program "
+        "that one agent can deliver in one stage, at most three routine/moderate tasks, "
+        "with no database, network service, migrations, authentication, or complex integration. "
+        "Recommend standard whenever uncertain or when architecture requires separate decisions. "
+        "Return recommended_route even when asking a question.\n"
+    )
     reply = codex_response(
         Path(session.project),
-        READ_ONLY + instructions + json.dumps(data, ensure_ascii=False),
+        READ_ONLY + instructions + route_instructions + json.dumps(data, ensure_ascii=False),
         IntakeReply,
         model=session.intake_model,
         timeout=session.timeout,
@@ -330,6 +343,7 @@ def _collect_brief(session, path, data, turn):
         turn=turn,
     )
     session.brief = reply.brief
+    session.recommended_route = reply.recommended_route
     if reply.question and not session.finish_intake:
         session.pending_question = reply.question
         session.pending_question_model = model_label(
@@ -345,6 +359,11 @@ def generate_plan(session: PlanningSession, path: Path) -> None:
     brief = session.brief
     if brief is None:
         raise ValueError("Planning requires a brief")
+    from codex_orchestrator.compact_planning import generate_compact_plan, selected_route
+
+    if selected_route(session) == "compact":
+        generate_compact_plan(session, path)
+        return
     typer.echo("Drafting the implementation plan...", err=True)
     data = {
         "brief": brief.model_dump(),

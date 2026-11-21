@@ -23,6 +23,7 @@ from codex_orchestrator.codex import CodexError
 from codex_orchestrator.cycle_store import find_history
 from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.run_store import Run, latest_runs, run_directory
+from codex_orchestrator.session import PlanningRoute
 from codex_orchestrator.stage_review import review_stage
 
 app = typer.Typer(no_args_is_help=True)
@@ -34,12 +35,17 @@ def fail(exc):
 
 
 @app.command("new")
-def new(project: Path, goal: str | None = None, directory: Path = Path("plans")):
+def new(
+    project: Path,
+    goal: str | None = None,
+    directory: Path = Path("plans"),
+    route: PlanningRoute = PlanningRoute.AUTO,
+):
     """Create a project history and its first cycle without calling a model."""
     try:
         project = project.resolve()
         goal = goal if goal is not None else typer.prompt("What would you like to build?")
-        path = cycle_manager.create_project(project, goal, directory.resolve())
+        path = cycle_manager.create_project(project, goal, directory.resolve(), route=route)
         typer.echo(f"Cycle 001 session: {path}")
         typer.echo(f"Continue with: orchestrator resume '{path}'")
     except (OSError, ValueError, CodexError) as exc:

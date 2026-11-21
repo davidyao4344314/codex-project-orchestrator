@@ -20,7 +20,7 @@ from codex_orchestrator.design import check_source
 from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.interactive import create_session
 from codex_orchestrator.run_store import runs
-from codex_orchestrator.session import PlanningSession
+from codex_orchestrator.session import PlanningRoute, PlanningSession
 
 
 def register(source: Path, *, imported: bool = True) -> ProjectHistory:
@@ -51,7 +51,9 @@ def register(source: Path, *, imported: bool = True) -> ProjectHistory:
         return history
 
 
-def create_project(project: Path, goal: str, directory: Path) -> Path:
+def create_project(
+    project: Path, goal: str, directory: Path, *, route: PlanningRoute = PlanningRoute.AUTO
+) -> Path:
     project = project.resolve()
     if not project.is_dir():
         raise ValueError("Choose an existing project folder.")
@@ -61,7 +63,7 @@ def create_project(project: Path, goal: str, directory: Path) -> Path:
         if any(Path(h.project).resolve() == project for _, h in histories(directory)):
             raise ValueError("This folder already has a cycle history.")
         path = directory / f"session-{uuid4().hex[:12]}.json"
-        create_session(project, project.name, goal.strip(), path)
+        create_session(project, project.name, goal.strip(), path, route=route)
         ProjectHistory(
             project=str(project),
             name=project.name,
@@ -199,6 +201,7 @@ def start_next(source: Path, goal: str) -> Path:
             intake_model=session.intake_model,
             planning_model=session.planning_model,
             previous_cycle_context=context,
+            route=session.planning_route,
         )
         history.cycles.append(
             Cycle(

@@ -48,6 +48,8 @@ def show_design(state: DesignSession) -> None:
     typer.echo(f"Architect response model: {source_model}")
     if revision.origin == "model_allocation":
         typer.echo("Agent model choices were revised locally using the existing architect design.")
+    elif revision.origin == "compact":
+        typer.echo(f"Combined planning and design call: {revision.elapsed_seconds:.1f}s")
     else:
         typer.echo(f"Architect call time: {revision.elapsed_seconds:.1f}s")
     typer.echo(design.overview)

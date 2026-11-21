@@ -118,13 +118,23 @@ def prepare_design(
             source_digest=source_digest(source.revisions[-1]),
             architect_model=source.planning_model,
         )
-        state.save(output, new=True)
+    new = not output.exists()
     if architect_model is not None:
         state.architect_model = normalize_model(architect_model)
     if agent_model is not None:
         state.default_agent_model = normalize_model(agent_model)
     if architect_model is not None or agent_model is not None:
         state.models_configured = architect_model is not None or state.models_configured
+    if new:
+        from codex_orchestrator.compact_planning import saved_compact_revision
+
+        compact = saved_compact_revision(state)
+        if compact is not None:
+            state.revisions.append(compact)
+            state.phase = "review"
+            typer.echo("Using the saved compact design; no additional architect call is needed.")
+        state.save(output, new=True)
+    elif architect_model is not None or agent_model is not None:
         state.save(output)
     return state, output
 
