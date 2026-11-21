@@ -98,6 +98,24 @@ are generated per design, so do not assume that their names match the examples.
 
 #### Automatic planning route and model selection
 
+For a well-defined feature in an existing repository, use the lightweight outline route:
+
+```sh
+orchestrator cycle new "$PROJECT" --route outline
+```
+
+Intake gathers requirements, Python prepares a scope-only approval draft without another
+model call, and the architect designs tasks from the approved brief and a bounded repository
+map. The normal stage, verification, review and Git gates still apply. For an unapproved
+existing draft, select it with `orchestrator resume "$SESSION" --route outline`.
+For a small one-stage task, the compact route can combine planning and design instead.
+
+Configure an available model palette before intake with `orchestrator cycle models "$SESSION"`
+to use a routine intake model, standard planning model, strong architect model and automatic
+task allocation. Then inspect `orchestrator cycle usage "$SESSION" --details` for measured
+tokens, prompt sizes, elapsed times and observed tool completions.
+See [planning efficiency evaluation](docs/planning-efficiency-evaluation.md).
+
 The default planning route is `auto`. The requirements agent recommends a compact
 route for a small, well-defined local change. Compact planning generates the task plan
 and technical design in **one Codex turn**; after approving the requirements plan,

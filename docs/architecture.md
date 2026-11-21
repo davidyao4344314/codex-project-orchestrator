@@ -13,7 +13,7 @@ later integrations.
 | --- | --- | --- |
 | Contracts/checkpoints | `models`, `session`, `design_models` | Validate persisted data, atomic replacement, revision history |
 | Planning services | `planner`, `interactive`, `design` | Intake, requirements, architecture, clarification and revisions |
-| Planning optimization | `compact_planning`, `model_catalog`, `model_allocation` | Combined drafts, model catalog discovery and deterministic task models |
+| Planning optimization | `planning_context`, `scope_outline`, `compact_planning`, `model_catalog`, `model_allocation` | Bounded repository map, local scope outlines, combined drafts and difficulty-based model allocation |
 | Design rules | `design_validation`, `stage_review`, `reassignment`, `allocation` | Graph/context validation, stage decisions, ownership changes |
 | Job assessment | `job_assessment` | Summarize architect difficulty/team decisions without inference on refresh |
 | Assignment context | `assignment_context`, `context_builder`, `context_models`, `context_files`, `context_handoffs` | Resolve bounded, versioned task packages without inference or UI imports |
@@ -102,6 +102,25 @@ Run `python -m pytest -q`, `ruff check src tests examples`, and `ruff format --c
 Web tests intentionally skip without the web extra, so install it when changing the interface.
 
 ## Compact planning and model allocation
+
+Requirements gathering and the standard planner receive explicit no-exploration instructions.
+The standard plan describes delivery outcomes, dependencies and acceptance criteria rather than
+inventing exact file paths or detailed tests. The architect owns technical discovery. It starts
+with a local filename-only inventory, ranked by goal terms, capped at 80 paths, 6 KiB of path
+metadata, 1,200 directory entries and six levels of directory descent. Excluded private and
+generated paths and symlinks are not included. A partial map is labeled incomplete; it is not
+evidence of file content or existence at a later time. Compact planning uses the same map.
+Inventory changes invalidate architect thread reuse. The architect receives a soft exploration
+target (six files, four inspection calls and 16 KiB per file), and all these planning routes
+have a hard 64 KiB application-prompt limit. Oversized inputs fail before inference; approved
+requirements are never silently truncated. The Codex harness can still inject instructions
+and perform tool work; the soft target is not provider quota enforcement.
+
+An explicitly selected `outline` route drafts the scope approval locally from the complete
+brief, with a placeholder covering every requirement. This uses no separate planner
+inference. It deliberately defers task count, dependencies, models, skills, ownership and
+technical checks to the architect. It retains the existing plan and design approvals.
+Existing saved plans, compact routing and standard AI planning remain supported.
 
 Intake returns a route recommendation as part of its existing structured response. The
 auto route has a local requirement-count guard. A compact call returns a complete
@@ -250,6 +269,8 @@ ephemeral and independent.
 
 Managed turns persist observed usage from JSONL completion events, byte length of the
 supplied prompt, timing, role/task/stage and session IDs. Missing counters stay null.
+New completed turns also count distinct recognized tool/command completion IDs without
+retaining tool arguments or output. Historical receipts without counts remain unknown.
 `usage_report` aggregates planning/design sidecars across the selected cycle's active and
 archived deliveries. It is not an account-billing estimate or a complete trace of ad-hoc
 calls. Separate cached/reasoning counters are not added to total input/output. The optional
