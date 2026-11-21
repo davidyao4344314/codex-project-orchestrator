@@ -27,9 +27,12 @@ def prepare_worker(package, project, folder):
     return spec
 
 
-def worker_prompt(spec, package, previous_runs, recovery_brief=None):
+def worker_prompt(spec, package, previous_runs, recovery_brief=None, branch=None):
     return (
         "Implement only this approved assignment using its selected worker profile and context. "
+        "The current assignment, branch, owned paths and checks supersede any earlier turns. "
+        "Earlier chat content is historical; do not carry forward permissions or unfinished "
+        "work from another assignment. "
         "Respect owned paths, scope exclusions, interfaces, skills and dependencies. "
         "If assignment context includes user_feedback, address only that correction within "
         "the original owned files and requirements. Report blocked if broader changes are needed. "
@@ -38,7 +41,8 @@ def worker_prompt(spec, package, previous_runs, recovery_brief=None):
         "Compare supplied hashes "
         "with current files before editing and report changed or incomplete inputs. "
         "Do not switch branches, commit, merge, push, deploy, delete user data "
-        "or modify credentials. "
+        "or read or modify credentials, authentication caches or private keys. "
+        "Do not spawn other agents or use external integrations. "
         "Run every planned automated check or mark it not_run with a reason. Never invent results. "
         "Keep human checks for the user. Produce a final JSON WorkerResult matching the supplied "
         "schema; copy task_id, agent_id, profile and context_digest from worker_spec. "
@@ -55,6 +59,7 @@ def worker_prompt(spec, package, previous_runs, recovery_brief=None):
                 "assignment_context": package.model_dump(),
                 "previous_runs": previous_runs,
                 "recovery_brief": recovery_brief,
+                "current_branch": branch,
             },
             ensure_ascii=False,
         )

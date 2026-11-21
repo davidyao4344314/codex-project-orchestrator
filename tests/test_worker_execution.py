@@ -12,15 +12,16 @@ from codex_orchestrator.models import Workstream
 from codex_orchestrator.stage_review import review_stage
 from codex_orchestrator.worker_models import WorkerEvidence, WorkerResult, WorkerSpec
 
-FAKE_CODEX = """import json, pathlib, shlex, subprocess, sys
+FAKE_CODEX = """import json, pathlib, shlex, subprocess, sys, uuid
 payload = json.loads(sys.stdin.read().split("\\n", 1)[1])
 spec = payload["worker_spec"]
 mode = MODE
 root = pathlib.Path.cwd()
+identity = sys.argv[-2] if sys.argv[-3] == "resume" else str(uuid.uuid4())
 if mode == "timeout":
     import time
     print(json.dumps({"type":"thread.started",
-        "thread_id":"12345678-1234-1234-1234-123456789abc"}), flush=True)
+        "thread_id":identity}), flush=True)
     time.sleep(60)
 changes = []
 if not spec["read_only"] and mode != "blocked":
@@ -35,7 +36,7 @@ check_code = "assert 2 + 2 == 5" if mode == "test_failed" else "assert 2 + 2 == 
 command = shlex.join([sys.executable, "-c", check_code])
 checks = []
 print(json.dumps({"type":"thread.started",
-    "thread_id":"12345678-1234-1234-1234-123456789abc"}), flush=True)
+    "thread_id":identity}), flush=True)
 for i, required in enumerate(spec["checks"]):
     if mode != "blocked":
         result = subprocess.run([sys.executable, "-c", check_code], capture_output=True)
@@ -58,7 +59,8 @@ raw = "{bad JSON" if mode == "malformed" else json.dumps(report)
 output = pathlib.Path(sys.argv[sys.argv.index("--output-last-message") + 1])
 output.write_text(raw)
 print(json.dumps({"type":"item.completed","item":{"type":"agent_message","text":raw}}), flush=True)
-print(json.dumps({"type":"turn.completed"}), flush=True)
+print(json.dumps({"type":"turn.completed","usage":{
+    "input_tokens":100,"cached_input_tokens":80,"output_tokens":20}}), flush=True)
 """
 
 

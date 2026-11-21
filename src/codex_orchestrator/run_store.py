@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import Field
 
 from codex_orchestrator.session import SessionData
+from codex_orchestrator.session_manager import TokenUsage
 
 
 class Run(SessionData):
@@ -18,6 +19,10 @@ class Run(SessionData):
     revision: int = Field(ge=1)
     status: Literal["starting", "running", "stopped", "completed", "failed", "blocked"] = "starting"
     thread_id: str | None = None
+    resume_thread_id: str | None = None
+    session_turn_id: str | None = None
+    token_usage: TokenUsage | None = None
+    session_warning: str | None = None
     branch: str | None = None
     worker_pid: int | None = None
     worker_started: str | None = None

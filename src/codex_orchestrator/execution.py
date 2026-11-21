@@ -11,7 +11,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from codex_orchestrator import project_activity
-from codex_orchestrator.codex import CodexError, find_codex
+from codex_orchestrator.codex import CodexError, exec_command, find_codex
 from codex_orchestrator.context_builder import build_context
 from codex_orchestrator.context_models import ContextLimits
 from codex_orchestrator.coordination_store import check_stage_prerequisites, load_coordination
@@ -20,6 +20,7 @@ from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.design_validation import task_graph, validate_design
 from codex_orchestrator.recovery_brief import build_recovery_brief
 from codex_orchestrator.run_store import Run, latest_runs, run_directory, runs
+from codex_orchestrator.session_manager import TurnEvents, begin_turn
 from codex_orchestrator.stage_review import current_review
 from codex_orchestrator.worker_audit import snapshot_workspace
 from codex_orchestrator.worker_models import WorkerSpec, artifact_digest
@@ -90,6 +91,7 @@ def start_run(state, path, task, context=None):
     )
     folder = run_directory(path) / run.id
     lock = project_lock(state.project)
+    turn = None
     with _guard:
         try:
             lease = project_activity.create(state.project, "worker", run.id)
@@ -136,6 +138,24 @@ def start_run(state, path, task, context=None):
             run.worker_contract_version = 1
             run.worker_profile = spec.profile
             run.worker_spec_digest = artifact_digest(spec)
+            mode = "verify" if spec.read_only else "write"
+            role = f"worker:{task.agent_id}:{task.workstream}:{mode}"
+            turn = begin_turn(
+                path,
+                Path(state.project),
+                role,
+                run.model,
+                {
+                    "design_revision": package.design_revision,
+                    "design_fingerprint": package.design_fingerprint,
+                    "profile": spec.profile,
+                    "sandbox": "read-only" if spec.read_only else "workspace-write",
+                },
+                task_id=task.id,
+                stage_id=task.stage_id,
+                run_id=run.id,
+            )
+            run.session_turn_id, run.resume_thread_id = turn.record.id, turn.resume_id
             previous_runs = [
                 r.model_dump(include={"id", "status", "model", "revision", "thread_id"})
                 for r in runs(path)
@@ -144,28 +164,49 @@ def start_run(state, path, task, context=None):
             recovery = build_recovery_brief(state, task, path, package)
             if recovery:
                 run.recovery_from = recovery["previous_run_id"]
-            run.prompt = worker_prompt(spec, package, previous_runs, recovery)
+            # Do not repeat old command output/summary when the same successful attempt is
+            # already in the resumed chat. Current input hashes and test requirements stay.
+            if (
+                turn.resume_id
+                and recovery
+                and previous_runs
+                and (
+                    previous_runs[-1]["thread_id"] == turn.resume_id
+                    and previous_runs[-1]["status"] == "completed"
+                )
+            ):
+                recovery.pop("earlier_summary", None)
+                recovery.pop("commands_observed", None)
+            run.prompt = worker_prompt(spec, package, previous_runs, recovery, run.branch)
+            turn.prepare(run.prompt)
             package.save(folder / "context.json")
             run.save(folder / "run.json")
             stop = threading.Event()
             _active[run.id] = stop
             worker = threading.Thread(
-                target=_worker, args=(executable, state.project, folder, lock, stop), daemon=True
+                target=_worker,
+                args=(executable, state.project, folder, lock, stop, turn),
+                daemon=True,
             )
             _workers[run.id] = worker
             worker.start()
         except BaseException:
-            project_activity.release(state.project, lease)
-            _active.pop(run.id, None)
+            try:
+                if turn:
+                    turn.finish("failed")
+            finally:
+                project_activity.release(state.project, lease)
+                _active.pop(run.id, None)
             raise
     return run
 
 
-def _worker(executable, project, folder, lock, stop):
+def _worker(executable, project, folder, lock, stop, turn=None):
     run = Run.load(folder / "run.json")
     process = None
     timer = None
     spec, before, commands = None, None, []
+    observed_events = turn.events if turn else TurnEvents()
     folder = folder.resolve()
     try:
         if run.branch:
@@ -185,31 +226,17 @@ def _worker(executable, project, folder, lock, stop):
             before = snapshot_workspace(project, spec.audit_paths, folder)
             before.save(folder / "workspace_before.json")
             run.workspace_before_digest = artifact_digest(before)
-        command = [
+        command = exec_command(
             executable,
-            "--no-daemon",
-            "--ask-for-approval",
-            "never",
-            "exec",
-            "--sandbox",
-            "read-only" if spec and spec.read_only else "workspace-write",
-            "--json",
-            "--color",
-            "never",
-            "--skip-git-repo-check",
-            "--cd",
-            project,
-        ]
-        if spec:
-            command += [
-                "--output-schema",
-                str(folder / "result_schema.json"),
-                "--output-last-message",
-                str(folder / "result.raw.json"),
-            ]
-        if run.model:
-            command += ["--model", run.model]
-        command += ["-"]
+            Path(project),
+            sandbox="read-only" if spec and spec.read_only else "workspace-write",
+            json_events=True,
+            no_daemon=True,
+            model=run.model,
+            resume_id=run.resume_thread_id,
+            schema=folder / "result_schema.json" if spec else None,
+            response=folder / "result.raw.json" if spec else None,
+        )
         with (folder / "stderr.log").open("w") as errors:
             process = subprocess.Popen(
                 command,
@@ -256,7 +283,6 @@ def _worker(executable, project, folder, lock, stop):
             process.stdin.close()
             run.status = "running"
             run.save(folder / "run.json")
-            completed = False
             with (folder / "events.jsonl").open("w") as events:
                 for line in process.stdout:
                     events.write(line)
@@ -267,12 +293,17 @@ def _worker(executable, project, folder, lock, stop):
                         continue
                     if not isinstance(event, dict):
                         continue
+                    observed_events.observe(event)
                     if spec and (observed := observe_command(event)):
                         commands.append(observed)
                         commands[:] = commands[-200:]
                     if event.get("type") == "thread.started":
-                        run.thread_id = event.get("thread_id")
+                        run.thread_id = observed_events.thread
                         run.save(folder / "run.json")
+                        if not observed_events.matches(run.resume_thread_id):
+                            run.error = "Codex returned a mismatched session. Retry fresh."
+                            terminate()
+                            break
                     item = event.get("item", {})
                     if (
                         event.get("type") == "item.completed"
@@ -284,15 +315,19 @@ def _worker(executable, project, folder, lock, stop):
                         limit = ContextLimits().max_handoff_bytes
                         run.handoff_summary = raw[:limit].decode("utf-8", errors="ignore")
                         run.handoff_truncated = len(raw) > limit
-                    if event.get("type") == "turn.completed":
-                        completed = True
                     if event.get("type") in {"turn.failed", "error"}:
                         run.error = str(event.get("error", event.get("message", "Codex failed")))
             code = process.wait()
+            if not observed_events.matches(run.resume_thread_id):
+                run.error = "Codex did not confirm the exact requested session. Retry fresh."
             run.status = (
                 "stopped"
                 if stop.is_set()
-                else ("completed" if code == 0 and completed and not run.error else "failed")
+                else (
+                    "completed"
+                    if code == 0 and observed_events.completed and not run.error
+                    else "failed"
+                )
             )
             if run.status == "failed" and not run.error:
                 run.error = f"Codex exited with code {code}; see diagnostics."
@@ -316,7 +351,16 @@ def _worker(executable, project, folder, lock, stop):
                     process.wait()
         finally:
             try:
+                run.token_usage = observed_events.usage
                 run.save(folder / "run.json")
+                if turn:
+                    try:
+                        turn.finish(run.status)
+                    except (OSError, ValueError):
+                        run.session_warning = (
+                            "Could not save session metadata; inspect local history."
+                        )
+                        run.save(folder / "run.json")
             finally:
                 stop.set()
                 # A checkpoint error must not orphan a lock once the child has exited.

@@ -10,6 +10,7 @@ from codex_orchestrator.assignment_context import task_context
 from codex_orchestrator.codex import KEEP_SECRETS_PRIVATE, codex_response
 from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.run_store import latest_runs, run_directory
+from codex_orchestrator.session_manager import managed_turn
 from codex_orchestrator.worker_audit import _file_state
 from codex_orchestrator.worker_models import WorkerResult
 
@@ -135,8 +136,7 @@ def run_review(
         store.ReviewInput(content=payload).save(store.input_path(path, pending.id))
         store.save_review(path, pending)
         reported = []
-        result = codex_response(
-            project,
+        prompt = (
             "Independently review the supplied stage changes. You are a separate reviewer, "
             "not the implementation worker. Inspect actual source, requirements, interfaces, "
             "scope, correctness, regressions and test adequacy; do not trust pass claims alone. "
@@ -151,11 +151,25 @@ def run_review(
             "Do not claim you ran checks. If evidence/context is insufficient return blocked; "
             "return changes_requested for defects. Additional manual checks block approval. "
             "Only approve when the selected changes meet scope and have adequate evidence. "
-            "Return the supplied structured decision schema.\n" + payload,
-            store.ReviewDecision,
-            model=policy.reviewer_model,
-            on_response=reported.append,
+            "Return the supplied structured decision schema.\n" + payload
         )
+        with managed_turn(
+            path,
+            project,
+            "reviewer",
+            policy.reviewer_model,
+            reviewed.fingerprint,
+            persistent=False,
+            stage_id=reviewed.stage_id,
+        ) as turn:
+            result = codex_response(
+                project,
+                prompt,
+                store.ReviewDecision,
+                model=policy.reviewer_model,
+                on_response=reported.append,
+                turn=turn,
+            )
         # Native follow-ups and external editors do not respect our application lock.
         current = git._preview(path, reviewed.stage_id, reviewed.paths)
         if current.fingerprint != reviewed.fingerprint:

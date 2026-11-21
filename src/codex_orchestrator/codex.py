@@ -168,6 +168,8 @@ def codex_response(
         reported_model = match.group(1) if match else None
         if turn:
             turn.record.reported_model = reported_model
+            if turn.events.thread:
+                typer.echo(f"Session ID: {turn.events.thread}", err=True)
             if turn.events.usage:
                 usage = turn.events.usage
                 typer.echo(
