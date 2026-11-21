@@ -39,7 +39,7 @@ python -m pytest tests/test_cycle_store.py tests/test_cycle_manager.py tests/tes
 These tests simulate Codex and remote pushes, using temporary repositories. They verify the
 cycle records, targeted feedback, preservation of independent tasks, final commit contents,
 and user push confirmation without using your Codex account. For the full project suite, run
-`python -m pytest -q` (230 tests at the time of this guide), then
+`python -m pytest -q`, then
 `ruff check src tests examples` and `ruff format --check src tests examples`.
 
 ### 3. Create a disposable real-worker test project
@@ -98,6 +98,40 @@ are generated per design, so do not assume that their names match the examples.
 If you stop after planning, close the terminal and resume later by activating the
 orchestrator environment and setting `SESSION` to the saved path again. Then run
 `orchestrator cycle status "$SESSION"`. Status and history alone never launch a model.
+
+### Inspect persistent Codex sessions and usage
+
+The orchestrator now remembers Codex thread IDs for requirements, planning, architecture
+and each implementation agent/workstream. It resumes the exact known ID on related work.
+Frontend, backend, database and read-only verification keep separate conversations, even
+when the planner assigns the same logical agent to multiple workstreams. The independent
+reviewer always starts a fresh read-only turn.
+
+```sh
+orchestrator cycle sessions "$SESSION"
+orchestrator cycle usage "$SESSION"
+orchestrator cycle usage "$SESSION" --details
+```
+
+These commands only inspect local records. The first shows saved thread IDs; the second
+groups measured token usage and elapsed time by role, stage, task and fresh/resumed turns.
+Missing usage is reported as unknown: historical/ad-hoc calls are not reconstructed.
+The session ID and observed token counts are also shown after a managed turn.
+
+Requirements/architect clarification follow-ups send only new answers when the saved
+context matches. Workers still receive a freshly built, approved assignment and current
+inputs every time, even when their thread is resumed. Changing model, design revision,
+project, workstream or permissions starts a fresh thread; persistent threads also rotate
+after eight successful turns. Failed or interrupted turns retire their binding and a
+deliberate retry starts fresh. No request is automatically replayed on a failed resume.
+New cycles and scoped correction delivery designs start separate threads.
+
+For a fresh-session baseline, use `export ORCHESTRATOR_FRESH_SESSIONS=1` in a separate
+test terminal. Create an equivalent disposable project with the same goal and model
+settings. Compare its usage report to the persistent-session run, then
+`unset ORCHESTRATOR_FRESH_SESSIONS`. Reusing a thread does not guarantee less billing:
+the model may process its previous history. Compare measured tokens and correctness.
+See [session and usage testing](docs/session-usage-testing.md) for specific checks.
 
 ### 5. Deliver a stage and test the feedback loop
 
@@ -636,7 +670,10 @@ Codex account usage applies when you select this provider.
 
 Use `codex login status` to check your sign-in. If you need to sign in, run `codex login` and
 complete the ChatGPT browser flow. Keep Codex's credential store outside the repository.
-Git ignores `auth.json`, `.env` files, and generated plans under `plans/`. If you choose an
+Git ignores `auth.json`, `.env` files, generated plans under `plans/`, and the generated
+Codex session-binding and turn-metrics sidecars. Native Codex retains persistent conversation
+history in its own local storage. The binding/metrics files contain IDs and numeric
+observations, not credentials or copied chat logs. If you choose an
 output path elsewhere, review the saved brief and session before staging it. Codex can read
 project files during planning, so keep secrets out of the brief and use a project folder that
 you are comfortable sharing with your signed-in Codex service.
@@ -716,8 +753,8 @@ native chats. Browser and real-account acceptance steps are documented separatel
 ## Next increments
 
 1. Add independent stage review and richer test-evidence evaluation.
-2. Add workflow metrics and compare completion time, tokens, tool calls, errors and test results
-   against ordinary Codex runs.
+2. Extend the initial token/timing reports into a workflow analyzer and compare completion
+   time, tokens, tool calls, errors and test results against ordinary Codex runs.
 3. Add durable process recovery and isolated Git worktrees before parallel worker execution.
 4. Extend terminal execution controls and verified commit/merge evidence.
 
@@ -739,12 +776,15 @@ See [browser testing instructions](docs/web-testing.md) for expected results.
 ## Implementation and Codex chats
 
 Approve the technical design and the chosen stage's plan, then choose Start implementation.
-The runner uses persistent `codex exec --json` sessions with the workspace-write sandbox
+The runner uses persistent `codex exec --json` sessions and explicit-ID `codex exec resume`
+within the approved agent/workstream boundary, with the workspace-write sandbox
 (read-only for verification assignments),
 existing Codex sign-in, and the assigned model. Only one task can write in a project at a time.
 The run panel refreshes every two seconds and shows events, agent output, status, and the
 exact supplied prompt. Open chat in Codex launches `codex://threads/<recorded-thread-id>`;
-the original context is visible in the chat's first message and downloadable from the panel.
+each current assignment's supplied context is visible in its own message and downloadable
+from the panel. Use orchestrator feedback/retry rather than issuing unrelated instructions in
+an orchestrator-managed native chat.
 Codex also loads its own user/project instructions; the displayed prompt is the context our
 application supplies, not an inventory of Codex's internal context.
 

@@ -17,6 +17,7 @@ later integrations.
 | Job assessment | `job_assessment` | Summarize architect difficulty/team decisions without inference on refresh |
 | Assignment context | `assignment_context`, `context_builder`, `context_models`, `context_files`, `context_handoffs` | Resolve bounded, versioned task packages without inference or UI imports |
 | Read-only Codex adapter | `codex`, `setup`, `explain` | CLI discovery/auth setup, structured responses, explanations |
+| Conversation management | `session_manager`, `usage_report` | Scoped thread bindings, turn receipts, read-only usage aggregation |
 | Execution coordinator | `coordinator`, `coordination_store`, `coordinator_view` | Explicit dispatch, pause/resume, stage schedules and acceptance checkpoints |
 | Worker layer | `worker_models`, `worker_profiles`, `worker_runtime`, `worker_results`, `worker_audit`, `worker_view` | Role-specific execution contracts, reports, observed evidence and review display |
 | Execution adapter | `execution` | Start/stop Codex, project writer lock, timeout, prerequisites, verification |
@@ -82,8 +83,9 @@ and stale final outputs require re-verification.
   need manual acceptance. Automated subprocess tests use local fake Codex programs.
 - The documented installation is an editable repository checkout. A distributable wheel still
   needs packaging work for sample assets and a user-writable session directory.
-- Workflow analysis, token/tool-call metrics, comparative evaluation, verified commits, and
-  automatic review/merge gates remain future increments.
+- Detailed workflow analysis, tool-call metrics, controlled comparative evaluation and
+  automatic review/merge gates remain future increments; managed turns now record token/timing
+  observations.
 
 ## How to extend it
 
@@ -152,6 +154,39 @@ Skill lookup supports local SKILL.md files under the project, ~/.codex/skills, ~
 and ~/.codex/plugins. Remote skill resources and recursive skill-resource bundling are not yet
 implemented. Context exclusion heuristics do not guarantee removal of every possible secret.
 The Codex sandbox and its own instruction loading remain separate from package selection.
+
+## Persistent Codex sessions and usage
+
+`session_manager` stores thread IDs and scope fingerprints in a sidecar per planning/design
+checkpoint. The scope includes the resolved checkpoint and project, role, model, design
+boundary, and Codex home selection. Worker slots separate the logical agent, workstream and
+write/verification mode. The approved design fingerprint and revision prevent a changed
+allocation or design from inheriting old conversation permissions. Threads rotate after eight
+successful turns, and new cycles/correction deliveries have independent checkpoints.
+
+Begin consumes the prior binding under a short file lock and creates a unique turn receipt.
+Only a successfully completed, validated turn with a matching CLI thread event can publish
+a new binding. A crash, missing ID, mismatch, or failed turn leaves no reusable binding;
+there is no hidden replay. A superseded claim cannot restore an older binding. This uses
+POSIX file locking and the existing project-wide writer lock for workers; it is still a
+local single-user application, not a transactional multi-user planner. Native Codex's
+own history retention and external chat edits are outside this registry.
+
+The CLI adapter uses an explicit UUID with `exec resume`, retains the sandbox and schema on
+every call, and never selects the last arbitrary chat. Intake/architect follow-ups hash the
+unchanged answer prefix (and intake's saved brief) before sending an increment. A changed
+prefix or scope results in a complete new prompt. Workers always rebuild canonical context,
+current file hashes and scopes; old history is reference data, not authority. For a same-thread
+retry, duplicate historical command output and handoff text are omitted. Review remains
+ephemeral and independent.
+
+Managed turns persist observed usage from JSONL completion events, byte length of the
+supplied prompt, timing, role/task/stage and session IDs. Missing counters stay null.
+`usage_report` aggregates planning/design sidecars across the selected cycle's active and
+archived deliveries. It is not an account-billing estimate or a complete trace of ad-hoc
+calls. Separate cached/reasoning counters are not added to total input/output. The optional
+`ORCHESTRATOR_FRESH_SESSIONS=1` switch provides a fresh-session comparison baseline;
+controlled performance evaluation is still required.
 
 ## Worker boundary
 

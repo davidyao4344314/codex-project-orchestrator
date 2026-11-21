@@ -7,6 +7,11 @@ which actions repeated, and where retries or failures accumulated. Use reported 
 to flag expensive tasks and investigate repeated work. Keep task, run, and step IDs so the
 report can point back to the evidence.
 
+Implemented first increment: managed planning, worker and reviewer turns record their
+session IDs, role/task/stage, elapsed time, terminal status and reported token counters.
+`orchestrator cycle usage SESSION` aggregates these records. Repeated-step analysis and
+complete tool-call accounting remain planned.
+
 ## Task Planner (任务规划)
 
 Stage 1 breaks requirements into tasks, validates dependencies, groups tasks that can become
@@ -20,6 +25,10 @@ Use analyzer findings to propose specific changes. Examples include consolidatin
 tool calls, handing agents only the context they need, reusing file reads when the files have
 not changed, and running focused checks before slower integration tests. Evaluate each change
 against a baseline before making it the default.
+
+Implemented first increment: persistent, role-isolated Codex threads with bounded turn
+reuse and incremental clarification prompts. A fresh-session baseline switch is available;
+actual token/correctness improvements are not yet established.
 
 ## Evaluation Engine (评估引擎)
 
