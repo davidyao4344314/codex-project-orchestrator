@@ -1,6 +1,5 @@
 """Terminal workflow for intake, planning, review, and approval."""
 
-import json
 from graphlib import TopologicalSorter
 from pathlib import Path
 from typing import Literal, Self
@@ -11,6 +10,7 @@ from pydantic import model_validator
 
 from codex_orchestrator.codex import KEEP_SECRETS_PRIVATE, codex_response
 from codex_orchestrator.models import Text
+from codex_orchestrator.planning_context import NO_EXPLORATION, planning_prompt
 from codex_orchestrator.session import (
     Answer,
     Brief,
@@ -102,8 +102,12 @@ def create_session(
     session = PlanningSession(
         project=str(project),
         project_name=name,
-        intake_model=intake_model,
-        planning_model=planning_model,
+        intake_model=intake_model
+        if intake_model is not None
+        else (model_policy.routine if model_policy else None),
+        planning_model=planning_model
+        if planning_model is not None
+        else (model_policy.standard if model_policy else None),
         timeout=timeout,
         previous_cycle_context=previous_cycle_context,
         planning_route=route,
@@ -296,7 +300,13 @@ def collect_brief(session: PlanningSession, path: Path) -> None:
         Path(session.project),
         "requirements",
         session.intake_model,
-        {key: data[key] for key in ("project_name", "previous_cycle_context", "previous_plan")},
+        {
+            **{
+                key: data[key]
+                for key in ("project_name", "previous_cycle_context", "previous_plan")
+            },
+            "planning_context_version": 1,
+        },
         resume_if=compatible,
     ) as turn:
         _collect_brief(session, path, data, turn)
@@ -342,10 +352,7 @@ def _collect_brief(session, path, data, turn):
     )
     reply = codex_response(
         Path(session.project),
-        READ_ONLY
-        + instructions
-        + route_instructions
-        + json.dumps(data, ensure_ascii=False, separators=(",", ":")),
+        planning_prompt(READ_ONLY + NO_EXPLORATION + instructions + route_instructions, data),
         IntakeReply,
         model=session.intake_model,
         timeout=session.timeout,
@@ -369,6 +376,11 @@ def generate_plan(session: PlanningSession, path: Path) -> None:
     brief = session.brief
     if brief is None:
         raise ValueError("Planning requires a brief")
+    if session.planning_route == PlanningRoute.OUTLINE:
+        from codex_orchestrator.scope_outline import draft_outline
+
+        draft_outline(session, path)
+        return
     from codex_orchestrator.compact_planning import generate_compact_plan, selected_route
 
     if selected_route(session) == "compact":
@@ -388,17 +400,23 @@ def _generate_plan(session, path, data, turn):
     brief = session.brief
     reply = codex_response(
         Path(session.project),
-        READ_ONLY + " Inspect the existing project and plan only the work requested by this brief. "
-        "If a missing answer would change scope or an important design decision, return "
-        "one focused question with plan null. Otherwise return a plan with question null. "
-        "Number the brief requirements from 1 in their given order. Link each task to "
-        "one or more of those requirements and cover every requirement. Respect exclusions. "
-        "Use only relevant workstreams, or general for work outside them. Include concrete "
-        "scope, acceptance criteria, dependencies, and proposed automated and human checks. "
-        "Recommend multiple agents only if independent tasks justify coordination. "
-        "Treat previous cycle context as history; do not expand the approved brief. "
-        "When revising, retain work from the prior plan where it still fits the brief.\n"
-        + json.dumps(data, ensure_ascii=False, separators=(",", ":")),
+        planning_prompt(
+            READ_ONLY + NO_EXPLORATION + " Plan only the work requested by this brief. "
+            "If a missing answer would change scope or an important design decision, return "
+            "one focused question with plan null. Otherwise return a plan with question null. "
+            "Number the brief requirements from 1 in their given order. Link each task to "
+            "one or more of those requirements and cover every requirement. Respect exclusions. "
+            "Use only relevant workstreams, or general for work outside them. Include concrete "
+            "outcome-level scope, acceptance criteria, dependencies, and proposed "
+            "automated and human checks. "
+            "Keep tasks at the delivery-outcome level. Use concise, non-redundant bullets; "
+            "do not invent file paths, interfaces, implementation details, commands or detailed "
+            "test matrices. The architect will determine these once. "
+            "Recommend multiple agents only if independent tasks justify coordination. "
+            "Treat previous cycle context as history; do not expand the approved brief. "
+            "When revising, retain work from the prior plan where it still fits the brief.\n",
+            data,
+        ),
         PlanningReply,
         model=session.planning_model,
         timeout=session.timeout,
@@ -424,7 +442,12 @@ def _generate_plan(session, path, data, turn):
 
 def show_plan(session: PlanningSession) -> None:
     revision = session.revisions[-1]
-    typer.echo(f"Plan model: {model_label(revision.requested_model, revision.reported_model)}")
+    from codex_orchestrator.scope_outline import is_outline
+
+    if is_outline(revision.plan):
+        typer.echo("Plan source: local Python outline (no Codex call)")
+    else:
+        typer.echo(f"Plan model: {model_label(revision.requested_model, revision.reported_model)}")
     brief = revision.brief
     plan = revision.plan
     typer.echo(f"\nPlan revision {len(session.revisions)} — {brief.goal}")

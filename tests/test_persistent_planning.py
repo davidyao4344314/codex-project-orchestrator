@@ -44,6 +44,7 @@ def test_requirements_resume_sends_only_new_answers_and_planner_is_separate(tmp_
     state = interactive.create_session(tmp_path, "Notes", "Unique initial project idea", path)
     interactive.collect_brief(state, path)
     first = session_manager.read_turns(path)[0]
+    assert "Do not call tools" in calls[0][1]
     assert first.session_reusable
     state = interactive.PlanningSession.load(path)
     interactive.submit_answer(state, path, "Members only")
@@ -51,9 +52,12 @@ def test_requirements_resume_sends_only_new_answers_and_planner_is_separate(tmp_
     assert calls[1][0][-3:] == ["resume", first.thread_id, "-"]
     assert "Members only" in calls[1][1] and "Unique initial project idea" not in calls[1][1]
     assert "previous_brief" not in calls[1][1]
+    assert "Do not call tools" in calls[1][1]
     assert len(calls[1][1]) < len(calls[0][1])
     interactive.generate_plan(state, path)
     assert "resume" not in calls[2][0]
+    assert "Do not call tools" in calls[2][1]
+    assert "delivery-outcome level" in calls[2][1]
     records = session_manager.read_turns(path)
     assert records[-1].role == "planner" and records[-1].thread_id != first.thread_id
     assert state.phase == "review"
@@ -82,6 +86,8 @@ def test_architect_resumes_clarification_but_reloads_materially_changed_design(
         ],
     )
     design.generate_design(state, path, 30)
+    assert '"repository_map":' in calls[0][1]
+    assert "Do not repeat a full directory listing" in calls[0][1]
     original = session_manager.read_turns(path)[0].thread_id
     design.submit_design_answer(state, path, "Print numbers")
     design.generate_design(state, path, 30)

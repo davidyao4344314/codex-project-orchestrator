@@ -1,6 +1,5 @@
 """One structured planning call for bounded projects; approval gates remain separate."""
 
-import json
 from pathlib import Path
 from time import monotonic
 from typing import Self
@@ -12,6 +11,7 @@ from codex_orchestrator.codex import CodexError, codex_response
 from codex_orchestrator.design_models import DesignRevision, TechnicalDesign, source_digest
 from codex_orchestrator.design_validation import validate_design
 from codex_orchestrator.models import Text
+from codex_orchestrator.planning_context import FOCUSED_EXPLORATION, planning_prompt, repository_map
 from codex_orchestrator.session import DraftPlan, Revision, ScopedTask, SessionData
 from codex_orchestrator.session_manager import managed_turn
 
@@ -116,6 +116,9 @@ def generate_compact_plan(session, path):
         "brief": brief.model_dump(),
         "previous_plan": session.revisions[-1].plan.model_dump() if session.revisions else None,
         "previous_cycle_context": session.previous_cycle_context,
+        "repository_map": repository_map(
+            Path(session.project), " ".join([brief.goal, *brief.requirements])
+        ),
     }
     typer.echo("Compact planning: drafting the tasks and technical design together.", err=True)
     started = monotonic()
@@ -124,23 +127,31 @@ def generate_compact_plan(session, path):
     ) as turn:
         reply = codex_response(
             Path(session.project),
-            READ_ONLY + "\nDraft a combined plan and technical design from the proposed brief. "
-            "Cover every requirement (numbered R1, R2, etc.), preserve exclusions/constraints, "
-            "and inspect only relevant existing files. Use one agent, one stage, at most three "
-            "routine/moderate tasks, two components and six exact owned files. Define components, "
-            "data flow, interfaces, justified technologies and task dependencies. Every task "
-            "needs its owner, exact file boundaries, relevant skills (real SKILL.md or null), "
-            "required context, acceptance criteria, handoff and automated/human checks. "
-            "Use task_summary for producer handoffs and upstream_file as producer-id:file-path "
-            "for only the future files needed; existing files use project_file. "
-            "Never propose archived_summary; it is reserved for correction checkpoints. "
-            "Keep human stage review, evidence and failure owner; no claimed tests. "
-            "Choose a capability appropriate to the hardest task. "
-            "Do not add a database, service, authentication, deployment or complex integration. "
-            "If this cannot meet the actual user requirements, return standard_reason "
-            "instead of simplifying away requirements; use question for essential clarification. "
-            "Return the supplied CompactReply shape. Prior cycle and plan are historical context.\n"
-            + json.dumps(data, ensure_ascii=False, separators=(",", ":")),
+            planning_prompt(
+                READ_ONLY
+                + " "
+                + FOCUSED_EXPLORATION
+                + "\nDraft a combined plan and technical design from the proposed brief. "
+                "Cover every requirement (numbered R1, R2, etc.), preserve exclusions/constraints, "
+                "and inspect only relevant existing files. Use one agent, one stage, at most three "
+                "routine/moderate tasks, two components and six exact owned files. "
+                "Define components, "
+                "data flow, interfaces, justified technologies and task dependencies. Every task "
+                "needs its owner, exact file boundaries, relevant skills (real SKILL.md or null), "
+                "required context, acceptance criteria, handoff and automated/human checks. "
+                "Use task_summary for producer handoffs and upstream_file as producer-id:file-path "
+                "for only the future files needed; existing files use project_file. "
+                "Never propose archived_summary; it is reserved for correction checkpoints. "
+                "Keep human stage review, evidence and failure owner; no claimed tests. "
+                "Choose a capability appropriate to the hardest task. "
+                "Do not add a database, service, authentication, deployment or complex "
+                "integration. "
+                "If this cannot meet the actual user requirements, return standard_reason "
+                "instead of simplifying away requirements; use question for essential "
+                "clarification. Return the supplied CompactReply shape. "
+                "Prior cycle and plan are historical context.\n",
+                data,
+            ),
             CompactReply,
             model=session.planning_model,
             timeout=session.timeout,

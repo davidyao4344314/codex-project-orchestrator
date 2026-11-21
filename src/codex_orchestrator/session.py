@@ -14,6 +14,7 @@ class PlanningRoute(StrEnum):
     AUTO = "auto"
     COMPACT = "compact"
     STANDARD = "standard"
+    OUTLINE = "outline"
 
 
 class SessionData(BaseModel):

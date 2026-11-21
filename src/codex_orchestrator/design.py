@@ -1,6 +1,5 @@
 """Read-only architect requests bound to an approved Stage 1 revision."""
 
-import json
 from pathlib import Path
 from time import monotonic
 
@@ -17,12 +16,13 @@ from codex_orchestrator.design_models import (
 from codex_orchestrator.design_validation import context_blockers, validate_design
 from codex_orchestrator.interactive import READ_ONLY, ask, model_label
 from codex_orchestrator.model_allocation import revision_models
+from codex_orchestrator.planning_context import FOCUSED_EXPLORATION, planning_prompt, repository_map
 from codex_orchestrator.session import Answer, PlanningSession
 from codex_orchestrator.session_manager import digest, managed_turn
 from codex_orchestrator.setup import ensure_codex
 
 ARCHITECT_INSTRUCTIONS = (
-    "Act as the architect for Stage 2. Inspect the existing repository with read-only operations. "
+    "Act as the architect for Stage 2. "
     "Use the approved brief as the scope. Explain existing code to reuse and new work needed. "
     "Return either a focused clarification question or a complete technical design. "
     "Set requires_requirement_change true only when answering the question would require "
@@ -161,17 +161,33 @@ def normalize_model(value: str) -> str | None:
 
 
 def generate_design(state: DesignSession, output: Path, timeout: int) -> None:
+    from codex_orchestrator.scope_outline import is_outline
+
     source = check_source(state)
+    local_outline = is_outline(state.source.plan, state.source.brief)
     data = {
         "project_name": source.project_name,
         "approved_brief": state.source.brief.model_dump(),
-        "initial_tasks": state.source.plan.model_dump(),
+        # The exact local projection is redundant with the approved brief. Preserve
+        # all other approved plan content, including older detailed Stage 1 revisions.
+        "initial_tasks": (
+            {"local_outline": True} if local_outline else state.source.plan.model_dump()
+        ),
         "validation_feedback": state.validation_feedback,
         "clarifications": [answer.model_dump() for answer in state.answers],
         "previous_design": (state.revisions[-1].design.model_dump() if state.revisions else None),
+        "repository_map": repository_map(
+            Path(state.project),
+            " ".join([state.source.brief.goal, *state.source.brief.requirements]),
+        ),
     }
     clarifications = data["clarifications"]
-    boundary = {"source_digest": state.source_digest, "previous_design": data["previous_design"]}
+    boundary = {
+        "source_digest": state.source_digest,
+        "previous_design": data["previous_design"],
+        "repository_map": data["repository_map"],
+        "planning_context_version": 1,
+    }
     with managed_turn(
         output,
         Path(state.project),
@@ -204,13 +220,27 @@ def _generate_design(state, output, timeout, data, turn):
             "Return one focused question or a complete updated technical-design JSON."
         )
     else:
+        from codex_orchestrator.scope_outline import is_outline
+
         instructions = ARCHITECT_INSTRUCTIONS
+        if is_outline(state.source.plan, state.source.brief):
+            instructions += (
+                " The initial_tasks local_outline marker stands for the approved brief, "
+                "not an agent assignment. Define the necessary real tasks, stages, "
+                "dependencies and checks. "
+                "Determine team size and difficulty independently."
+            )
     reply = codex_response(
         Path(state.project),
-        READ_ONLY
-        + instructions
-        + "\n"
-        + json.dumps(data, ensure_ascii=False, separators=(",", ":")),
+        planning_prompt(
+            READ_ONLY
+            + " "
+            + FOCUSED_EXPLORATION
+            + instructions
+            + " Keep descriptions and rationale concise; avoid repeating requirements and "
+            "checks in multiple fields. Preserve all required verification and ownership detail.",
+            data,
+        ),
         DesignReply,
         model=state.architect_model,
         timeout=timeout,
