@@ -1,5 +1,6 @@
 """Terminal interface for cycle history and explicit delivery actions."""
 
+import json
 import time
 from enum import StrEnum
 from pathlib import Path
@@ -16,6 +17,7 @@ from codex_orchestrator import (
     review_agent,
     review_store,
     stage_branches,
+    usage_report,
 )
 from codex_orchestrator.codex import CodexError
 from codex_orchestrator.cycle_store import find_history
@@ -81,6 +83,26 @@ def status(source: Path):
             typer.echo("Ready for the next goal. Run orchestrator cycle next with this session.")
         else:
             typer.echo(recovery.inspect_project(current).model_dump_json(indent=2))
+    except (OSError, ValueError, CodexError) as exc:
+        fail(exc)
+
+
+@app.command()
+def usage(
+    source: Path, details: bool = typer.Option(False, help="Include individual turn records.")
+):
+    """Inspect local token and timing metrics without calling Codex."""
+    try:
+        typer.echo(json.dumps(usage_report.usage_report(source, details=details), indent=2))
+    except (OSError, ValueError, CodexError) as exc:
+        fail(exc)
+
+
+@app.command()
+def sessions(source: Path):
+    """Inspect saved requirement, architect and worker session IDs."""
+    try:
+        typer.echo(json.dumps(usage_report.session_report(source), indent=2))
     except (OSError, ValueError, CodexError) as exc:
         fail(exc)
 
@@ -212,6 +234,10 @@ def deliver(
             run = coordinator.run_next(path, stage, retry=action == DeliveryAction.retry)
             folder = run_directory(path) / run.id
             typer.echo(f"Run: {run.id}. Evidence folder: {folder}")
+            typer.echo(
+                "Codex session: "
+                + (f"resuming {run.resume_thread_id}" if run.resume_thread_id else "new")
+            )
             try:
                 while execution.is_busy(project):
                     time.sleep(0.5)
@@ -221,6 +247,16 @@ def deliver(
                     time.sleep(0.5)
             finished = Run.load(folder / "run.json")
             typer.echo(f"Run status: {finished.status}")
+            if finished.thread_id:
+                typer.echo(f"Session ID: {finished.thread_id}")
+            if finished.token_usage:
+                usage = finished.token_usage
+                typer.echo(
+                    f"Turn tokens: input {usage.input_tokens}, cached {usage.cached_input_tokens}, "
+                    f"output {usage.output_tokens}"
+                )
+            if finished.session_warning:
+                typer.echo(f"Session metadata: {finished.session_warning}", err=True)
             if finished.status != "completed":
                 from codex_orchestrator.recovery_brief import clipped
 

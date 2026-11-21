@@ -1,0 +1,113 @@
+"""Read-only aggregation of observed Codex turns across one cycle's deliveries."""
+
+from pathlib import Path
+
+from codex_orchestrator.cycle_store import find_history
+from codex_orchestrator.session import PlanningSession
+from codex_orchestrator.session_manager import TokenUsage, read_registry, read_turns
+
+
+def checkpoints(source: Path):
+    source = source.resolve()
+    found = find_history(source)
+    if found:
+        cycle = next(c for c in found[1].cycles if source.name in c.session_names())
+        names = [a.session_name for a in cycle.archived_deliveries] + [cycle.session_name]
+        number = cycle.number
+    else:
+        PlanningSession.load(source)
+        names, number = [source.name], None
+    paths = [
+        checkpoint
+        for name in names
+        for checkpoint in (source.parent / name, (source.parent / name).with_suffix(".design.json"))
+    ]
+    return number, source.parent / names[-1], paths
+
+
+def stats(records):
+    totals, coverage = {}, {}
+    for field in TokenUsage.model_fields:
+        values = [
+            getattr(r.usage, field)
+            for r in records
+            if r.usage is not None and getattr(r.usage, field) is not None
+        ]
+        totals[field] = sum(values) if values else None
+        coverage[field] = len(values)
+    return {
+        "attempts": len(records),
+        "statuses": {
+            status: sum(r.status == status for r in records)
+            for status in ("started", "completed", "failed", "blocked", "stopped")
+        },
+        "resume_attempts": sum(r.requested_thread_id is not None for r in records),
+        "confirmed_resumes": sum(
+            r.requested_thread_id is not None and r.thread_id == r.requested_thread_id
+            for r in records
+        ),
+        "elapsed_seconds": round(sum(r.elapsed_seconds or 0 for r in records), 2),
+        "prompt_bytes": sum(r.prompt_bytes for r in records),
+        "token_totals": totals,
+        "token_coverage_turns": coverage,
+    }
+
+
+def _groups(records, field):
+    values = sorted({getattr(r, field) for r in records if getattr(r, field) is not None})
+    return {value: stats([r for r in records if getattr(r, field) == value]) for value in values}
+
+
+def usage_report(source: Path, *, details=False):
+    number, current, paths = checkpoints(source)
+    records = sorted(
+        (record for path in paths for record in read_turns(path)),
+        key=lambda record: record.started_at,
+    )
+    report = {
+        "cycle": number,
+        "current_session": str(current),
+        "note": (
+            "Observed CLI events, not account billing. Missing usage is unknown, not zero. "
+            "Cached input and reasoning counts are subsets, not additional totals. "
+            "Fresh/resumed groups are observational, not a controlled benchmark. "
+            "Only managed planning, worker and reviewer turns are counted; earlier "
+            "and ad-hoc calls are not reconstructed."
+        ),
+        "total": stats(records),
+        "by_role": _groups(records, "role"),
+        "by_stage": _groups(records, "stage_id"),
+        "by_task": _groups(records, "task_id"),
+        "by_session_mode": {
+            "fresh": stats([r for r in records if r.requested_thread_id is None]),
+            "resumed": stats([r for r in records if r.requested_thread_id is not None]),
+        },
+    }
+    if details:
+        report["turns"] = [record.model_dump(mode="json") for record in records]
+    return report
+
+
+def session_report(source: Path):
+    number, current, paths = checkpoints(source)
+    bindings = []
+    active_paths = {current, current.with_suffix(".design.json")}
+    for path in paths:
+        for role, slot in sorted(read_registry(path).slots.items()):
+            binding = slot.binding
+            bindings.append(
+                {
+                    "checkpoint": str(path),
+                    "current_delivery": path in active_paths,
+                    "role": role,
+                    "thread_id": binding.thread_id if binding else None,
+                    "turns": binding.turns if binding else None,
+                    "saved_binding": binding is not None,
+                }
+            )
+    return {
+        "cycle": number,
+        "current_session": str(current),
+        "note": ("Saved bindings are rechecked before dispatch; reviewer is always fresh."),
+        "sessions": bindings,
+    }
