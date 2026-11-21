@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from codex_orchestrator.codex import CodexError
 from codex_orchestrator.context_files import sensitive_text
 from codex_orchestrator.context_models import ContextLimits, ContextResource
 from codex_orchestrator.design_validation import ancestors, task_graph
@@ -123,3 +124,92 @@ def compact_handoff(report):
     if report.human_checks:
         sections.append("User checks: " + "; ".join(report.human_checks))
     return "\n".join(sections)
+
+
+def archived_handoff_resource(state, task, reference, path, limits):
+    """Read only an originally declared, verified handoff from this cycle's merged archive."""
+    resource = ContextResource(
+        kind="task_output",
+        reference=reference.reference,
+        required=reference.required,
+        reason=reference.reason,
+        missing_action=reference.missing_action,
+        status="excluded",
+    )
+    from codex_orchestrator import stage_branches
+    from codex_orchestrator.coordination_store import design_fingerprint
+    from codex_orchestrator.correction_delivery import verified_merges
+    from codex_orchestrator.cycle_store import find_history
+    from codex_orchestrator.design import check_source
+    from codex_orchestrator.design_models import DesignSession
+    from codex_orchestrator.design_validation import SUMMARY_KINDS
+
+    source_name, separator, producer_id = reference.reference.partition(":")
+    try:
+        if (
+            not separator
+            or not producer_id
+            or not any(rev.origin == "correction" for rev in state.revisions)
+        ):
+            raise ValueError("Archived context is reserved for corrections.")
+        source = Path(state.source_file)
+        found = find_history(source)
+        cycle = (
+            next((c for c in found[1].cycles if source.name in c.session_names()), None)
+            if found
+            else None
+        )
+        archived = (
+            next((a for a in cycle.archived_deliveries if a.session_name == source_name), None)
+            if cycle
+            else None
+        )
+        if not archived:
+            raise ValueError("Archive does not belong to this cycle.")
+        archived_source = source.parent / archived.session_name
+        archived_path = archived_source.with_suffix(".design.json")
+        old_state = DesignSession.load(archived_path)
+        check_source(old_state)
+        if (
+            old_state.project != state.project
+            or Path(old_state.source_file).resolve() != archived_source.resolve()
+            or design_fingerprint(old_state) != archived.design_digest
+        ):
+            raise ValueError("The archived design or project changed.")
+        old_tasks = {t.id: t for t in old_state.revisions[-1].design.tasks}
+        old_task = old_tasks.get(task.id)
+        producer = old_tasks.get(producer_id)
+        if not old_task or old_task.agent_id != task.agent_id or not producer:
+            raise ValueError("This agent did not receive the original handoff.")
+        original = next(
+            (
+                r
+                for r in old_task.context
+                if r.kind in SUMMARY_KINDS
+                and r.reference == producer_id
+                and (r.required or not reference.required)
+            ),
+            None,
+        )
+        if original is None:
+            raise ValueError("The handoff was not in the original approved assignment.")
+        settings, _ = stage_branches.current(old_state, archived_path)
+        merged = archived.merged_stages.get(producer.stage_id)
+        if (
+            not settings
+            or not merged
+            or (
+                verified_merges(old_state, archived_path, settings.base).get(producer.stage_id)
+                != merged
+            )
+        ):
+            raise ValueError("Archived merge evidence changed.")
+        restored = handoff_resource(old_state, old_task, original, archived_path, limits)
+        restored.reference = reference.reference
+        restored.reason = reference.reason
+        restored.required = reference.required
+        restored.missing_action = reference.missing_action
+        return restored
+    except (OSError, ValueError, CodexError, KeyError):
+        resource.reason += " The original merged handoff could not be validated."
+        return resource

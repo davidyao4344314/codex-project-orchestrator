@@ -58,6 +58,7 @@ ARCHITECT_INSTRUCTIONS = (
     "for each exact producer-owned file needed. Use task_summary alone if no file is needed. "
     "Do not request the legacy task_output (which includes all owned files) unless every file "
     "is genuinely needed. Mark a handoff required when its file is required. "
+    "archived_summary is reserved for the orchestrator's correction workflow. "
     "Explain why each context item is needed and what to do if it is missing. "
     "Set required true when a task cannot be completed correctly without that item. "
     "A verification task must require the implementation output it verifies. "
@@ -206,7 +207,10 @@ def _generate_design(state, output, timeout, data, turn):
         instructions = ARCHITECT_INSTRUCTIONS
     reply = codex_response(
         Path(state.project),
-        READ_ONLY + instructions + "\n" + json.dumps(data, ensure_ascii=False),
+        READ_ONLY
+        + instructions
+        + "\n"
+        + json.dumps(data, ensure_ascii=False, separators=(",", ":")),
         DesignReply,
         model=state.architect_model,
         timeout=timeout,

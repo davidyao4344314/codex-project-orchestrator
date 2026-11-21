@@ -342,7 +342,10 @@ def _collect_brief(session, path, data, turn):
     )
     reply = codex_response(
         Path(session.project),
-        READ_ONLY + instructions + route_instructions + json.dumps(data, ensure_ascii=False),
+        READ_ONLY
+        + instructions
+        + route_instructions
+        + json.dumps(data, ensure_ascii=False, separators=(",", ":")),
         IntakeReply,
         model=session.intake_model,
         timeout=session.timeout,
@@ -395,7 +398,7 @@ def _generate_plan(session, path, data, turn):
         "Recommend multiple agents only if independent tasks justify coordination. "
         "Treat previous cycle context as history; do not expand the approved brief. "
         "When revising, retain work from the prior plan where it still fits the brief.\n"
-        + json.dumps(data, ensure_ascii=False),
+        + json.dumps(data, ensure_ascii=False, separators=(",", ":")),
         PlanningReply,
         model=session.planning_model,
         timeout=session.timeout,

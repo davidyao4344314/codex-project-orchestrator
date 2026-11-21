@@ -165,6 +165,89 @@ def models(
         fail(exc)
 
 
+@app.command()
+def context(
+    source: Path,
+    task: str = "",
+    full: bool = False,
+    budget_kib: int | None = None,
+    file_kib: int | None = None,
+    handoff_kib: int | None = None,
+    max_resources: int | None = None,
+):
+    """Inspect a task's context or explicitly adjust local context budgets."""
+    from codex_orchestrator.context_builder import build_context, update_context_limits
+    from codex_orchestrator.context_models import ContextLimits
+    from codex_orchestrator.design import check_source
+
+    try:
+        source = source.resolve()
+        cycle_manager.require_active(source)
+        path = source.with_suffix(".design.json")
+        state = DesignSession.load(path)
+        check_source(state)
+        if not state.revisions:
+            raise ValueError("Create a technical design first.")
+        changes = {
+            key: value * 1024
+            for key, value in (
+                ("max_package_bytes", budget_kib),
+                ("max_file_bytes", file_kib),
+                ("max_handoff_bytes", handoff_kib),
+            )
+            if value is not None
+        }
+        if max_resources is not None:
+            changes["max_resources"] = max_resources
+        if changes:
+            limits = ContextLimits.model_validate({**state.context_limits.model_dump(), **changes})
+            with git_service.writer(Path(state.project)):
+                cycle_manager.require_active(source)
+                update_context_limits(state, path, limits)
+        design = state.revisions[-1].design
+        if not task:
+            typer.echo(
+                json.dumps(
+                    {
+                        "limits": state.context_limits.model_dump(),
+                        "tasks": [
+                            {"id": t.id, "title": t.title, "agent": t.agent_id}
+                            for t in design.tasks
+                        ],
+                    },
+                    indent=2,
+                )
+            )
+            return
+        assignment = next((t for t in design.tasks if t.id == task), None)
+        if assignment is None:
+            raise ValueError("Unknown task ID. Run cycle context without --task to list tasks.")
+        package = build_context(state, assignment, path)
+        if full:
+            typer.echo(package.model_dump_json(indent=2))
+        else:
+            typer.echo(
+                json.dumps(
+                    {
+                        "task_id": task,
+                        "agent_id": package.agent_id,
+                        "snapshot_bytes": package.size_bytes(),
+                        "limits": package.limits.model_dump(),
+                        "blockers": package.blockers,
+                        "warnings": package.warnings,
+                        "resources": [
+                            resource.model_dump(exclude={"content"})
+                            for resource in package.resources
+                        ],
+                        "note": "Canonical preview; actual dispatch compacts the saved prompt.",
+                    },
+                    indent=2,
+                )
+            )
+    except (OSError, ValueError, CodexError) as exc:
+        fail(exc)
+
+
 @app.command("finish")
 def finish(source: Path, changes: str | None = None, feedback: str | None = None):
     """Record delivered changes and feedback after all stage merges."""

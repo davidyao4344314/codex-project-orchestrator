@@ -78,7 +78,7 @@ def _file_reference(name, reason, required=True):
     )
 
 
-def _rewrite_context(task, original, active_ids, project):
+def _rewrite_context(task, original, active_ids, project, source_name):
     context = []
     selected = {upstream_parts(r.reference)[0] for r in task.context if r.kind == "upstream_file"}
     for ref in task.context:
@@ -96,26 +96,20 @@ def _rewrite_context(task, original, active_ids, project):
         if ref.kind not in SUMMARY_KINDS or ref.reference in active_ids:
             context.append(ref)
             continue
-        if ref.reference in selected:
-            if ref.required and not any(
-                r.kind == "upstream_file"
-                and upstream_parts(r.reference)[0] == ref.reference
-                and r.required
-                and project_path(project, upstream_parts(r.reference)[1]).is_file()
-                for r in task.context
-            ):
-                raise ValueError(
-                    f"Archived handoff {ref.reference} has no required integrated file. "
-                    "Approve a wider plan before correcting this task."
-                )
-            continue  # Only the explicitly selected integrated files are carried forward.
-        producer = original[ref.reference]
-        files = (
-            [name for name in producer.owned_paths if project_path(project, name).is_file()]
-            if ref.kind == "task_output"
-            else []
+        context.append(
+            ContextReference(
+                kind="archived_summary",
+                reference=f"{source_name}:{ref.reference}",
+                reason=f"Retained verified handoff: {ref.reason}",
+                required=ref.required,
+                missing_action="Inspect the original recorded stage merge.",
+            )
         )
-        if ref.required and not files:
+        if ref.reference in selected or ref.kind == "task_summary":
+            continue  # Preserve the summary and only explicitly selected integrated files.
+        producer = original[ref.reference]
+        files = [name for name in producer.owned_paths if project_path(project, name).is_file()]
+        if ref.required and len(files) != len(producer.owned_paths):
             raise ValueError(
                 f"Archived context {ref.reference} has no live source files. "
                 "Approve a wider plan before correcting this task."
@@ -172,7 +166,9 @@ def _scoped_design(state, path, target, note, merged, stage_id):
         check.deliverables = ["Observed regression test results"]
         check.handoff_to = ["user"]
         check.context = [
-            r for r in check.context if r.kind not in SUMMARY_KINDS | {"upstream_file"}
+            r
+            for r in check.context
+            if r.kind not in SUMMARY_KINDS | {"upstream_file", "archived_summary"}
         ]
         check.context.extend(
             _file_reference(name, "Existing integration input for regression check", False)
@@ -207,7 +203,7 @@ def _scoped_design(state, path, target, note, merged, stage_id):
     )
     for task in tasks:
         task.depends_on = [dep for dep in task.depends_on if dep in active_ids]
-        _rewrite_context(task, original, active_ids, project)
+        _rewrite_context(task, original, active_ids, project, Path(state.source_file).name)
         # Keep every requirement referenced by retained assignments, including context.
         task.requirement_ids = sorted(
             set(task.requirement_ids)

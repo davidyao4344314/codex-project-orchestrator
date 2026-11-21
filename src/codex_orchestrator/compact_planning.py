@@ -108,7 +108,6 @@ def use_standard(session, path, reason):
 
 
 def generate_compact_plan(session, path):
-    from codex_orchestrator.design import ARCHITECT_INSTRUCTIONS
     from codex_orchestrator.interactive import READ_ONLY, model_label, record_source
 
     brief = session.brief
@@ -125,18 +124,23 @@ def generate_compact_plan(session, path):
     ) as turn:
         reply = codex_response(
             Path(session.project),
-            READ_ONLY
-            + ARCHITECT_INSTRUCTIONS
-            + "\nThis is a combined first plan and architecture draft, not an approved brief. "
-            "Treat the collected brief as the proposed scope; never implement. The combined "
-            "design itself supplies the task plan, so no duplicate task list is needed. "
-            "Use one agent, one stage, at most three routine/moderate tasks, two components "
-            "and six exact owned files. Keep human review and automated/human checks. "
+            READ_ONLY + "\nDraft a combined plan and technical design from the proposed brief. "
+            "Cover every requirement (numbered R1, R2, etc.), preserve exclusions/constraints, "
+            "and inspect only relevant existing files. Use one agent, one stage, at most three "
+            "routine/moderate tasks, two components and six exact owned files. Define components, "
+            "data flow, interfaces, justified technologies and task dependencies. Every task "
+            "needs its owner, exact file boundaries, relevant skills (real SKILL.md or null), "
+            "required context, acceptance criteria, handoff and automated/human checks. "
+            "Use task_summary for producer handoffs and upstream_file as producer-id:file-path "
+            "for only the future files needed; existing files use project_file. "
+            "Never propose archived_summary; it is reserved for correction checkpoints. "
+            "Keep human stage review, evidence and failure owner; no claimed tests. "
+            "Choose a capability appropriate to the hardest task. "
             "Do not add a database, service, authentication, deployment or complex integration. "
             "If this cannot meet the actual user requirements, return standard_reason "
             "instead of simplifying away requirements; use question for essential clarification. "
             "Return the supplied CompactReply shape. Prior cycle and plan are historical context.\n"
-            + json.dumps(data, ensure_ascii=False),
+            + json.dumps(data, ensure_ascii=False, separators=(",", ":")),
             CompactReply,
             model=session.planning_model,
             timeout=session.timeout,

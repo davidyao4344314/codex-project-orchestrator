@@ -6,7 +6,7 @@ from typing import Literal
 from codex_orchestrator.assignment_context import task_context
 from codex_orchestrator.codex import CodexError
 from codex_orchestrator.context_files import read_file, resolve_file
-from codex_orchestrator.context_handoffs import handoff_resource
+from codex_orchestrator.context_handoffs import archived_handoff_resource, handoff_resource
 from codex_orchestrator.context_models import ContextLimits, ContextPackage, ContextResource
 from codex_orchestrator.coordination_store import design_fingerprint
 from codex_orchestrator.design_models import Assignment, DesignSession
@@ -32,6 +32,12 @@ def build_context(
     metadata["project_goal"] = state.source.brief.goal
     metadata["stage"] = next(s.model_dump() for s in design.stages if s.id == task.stage_id)
     metadata["owned_paths"] = task.owned_paths
+    if purpose == "execution" and path is not None:
+        from codex_orchestrator.cycle_feedback import task_feedback
+
+        feedback = task_feedback(state, path, task.id)
+        if feedback:
+            metadata["user_feedback"] = feedback.model_dump(mode="json")
     package = ContextPackage(
         design_revision=len(state.revisions),
         design_fingerprint=design_fingerprint(state),
@@ -88,6 +94,9 @@ def build_context(
             else:
                 choices.append((name, reference))
     for reference in task.context:
+        if reference.kind == "archived_summary":
+            resources.append(archived_handoff_resource(state, task, reference, path, limits))
+            continue
         if reference.kind not in SUMMARY_KINDS:
             continue
         handoff = handoff_resource(state, task, reference, path, limits)

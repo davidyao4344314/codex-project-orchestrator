@@ -58,6 +58,7 @@ class ContextReference(SessionData):
         "task_output",
         "task_summary",
         "upstream_file",
+        "archived_summary",
     ]
     reference: Text
     reason: Text

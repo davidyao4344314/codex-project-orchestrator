@@ -127,6 +127,15 @@ def validate_design(design: TechnicalDesign, brief: Brief, project: Path) -> Non
                 errors.append(f"Task {task.id} has an unknown {item.kind} context reference")
             if item.kind == "project_file":
                 project_path(project, item.reference)
+            if item.kind == "archived_summary":
+                name, separator, producer = item.reference.partition(":")
+                if (
+                    not separator
+                    or not producer
+                    or Path(name).name != name
+                    or not name.endswith(".json")
+                ):
+                    errors.append(f"Task {task.id} has an invalid archived handoff reference")
             if item.kind == "upstream_file":
                 producer_id, name = upstream_parts(item.reference)
                 producer = tasks.get(producer_id)

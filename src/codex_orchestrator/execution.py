@@ -155,9 +155,6 @@ def start_run(state, path, task, context=None):
             package = build_context(state, task, path)
             if feedback:
                 run.feedback_id = feedback.id
-                package.metadata["user_feedback"] = feedback.model_dump(mode="json")
-                if package.size_bytes() > package.limits.max_package_bytes:
-                    raise ValueError("Feedback context exceeds the task context budget.")
             package.require_ready()
             run.context_digest = package.digest()
             folder.mkdir(parents=True)
