@@ -48,6 +48,11 @@ def stats(records):
         ),
         "elapsed_seconds": round(sum(r.elapsed_seconds or 0 for r in records), 2),
         "prompt_bytes": sum(r.prompt_bytes for r in records),
+        "full_vs_compact_prompt_bytes_saved": sum(
+            r.full_prompt_bytes - r.prompt_bytes for r in records if r.full_prompt_bytes is not None
+        ),
+        "compacted_prompt_count": sum(r.full_prompt_bytes is not None for r in records),
+        "reused_context_files": sum(r.reused_context_files for r in records),
         "token_totals": totals,
         "token_coverage_turns": coverage,
     }

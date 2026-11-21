@@ -147,6 +147,7 @@ def build_context(
                 ContextResource(
                     kind="instruction",
                     reference=reference,
+                    required=True,
                     reason="Coding instructions for the selected file scope",
                     status="pending",
                 )

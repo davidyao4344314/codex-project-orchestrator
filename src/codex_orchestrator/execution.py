@@ -27,11 +27,12 @@ from codex_orchestrator.worker_models import WorkerSpec, artifact_digest
 from codex_orchestrator.worker_results import observe_command
 from codex_orchestrator.worker_runtime import (
     check_worker_verification,
+    compact_worker_prompt,
     finalize_worker,
     prepare_worker,
     prompt_digest,
+    saved_context,
     validate_context_inputs,
-    worker_prompt,
 )
 
 RUN_TIMEOUT_SECONDS = 30 * 60
@@ -49,6 +50,30 @@ def project_lock(project):
 
 def is_busy(project):
     return project_lock(project).exists()
+
+
+def prior_thread_context(path, run, package, history):
+    """Only use a validated previous attempt in this exact resumed worker thread."""
+    if not run.resume_thread_id:
+        return None
+    from codex_orchestrator.recovery_brief import safe_folder
+
+    for previous in reversed(history):
+        if (
+            previous.thread_id != run.resume_thread_id
+            or previous.revision != run.revision
+            or previous.agent_id != run.agent_id
+            or previous.model != run.model
+            or previous.status != "completed"
+            or not previous.session_turn_id
+        ):
+            continue
+        try:
+            context = saved_context(previous, safe_folder(path, previous.id))
+        except (OSError, ValueError):
+            return None
+        return context if context.design_fingerprint == package.design_fingerprint else None
+    return None
 
 
 def start_run(state, path, task, context=None):
@@ -158,10 +183,11 @@ def start_run(state, path, task, context=None):
                 run_id=run.id,
             )
             run.session_turn_id, run.resume_thread_id = turn.record.id, turn.resume_id
+            history = runs(path)
             previous_runs = [
                 r.model_dump(include={"id", "status", "model", "revision", "thread_id"})
-                for r in runs(path)
-                if r.task_id == task.id
+                for r in history
+                if r.task_id == task.id and r.revision == run.revision
             ][-3:]
             recovery = build_recovery_brief(state, task, path, package)
             if recovery:
@@ -179,8 +205,15 @@ def start_run(state, path, task, context=None):
             ):
                 recovery.pop("earlier_summary", None)
                 recovery.pop("commands_observed", None)
-            run.prompt = worker_prompt(spec, package, previous_runs, recovery, run.branch)
+            prior_context = prior_thread_context(path, run, package, history)
+            run.prompt, run.full_prompt_bytes, run.reused_context_files = compact_worker_prompt(
+                spec, package, previous_runs, recovery, run.branch, previous=prior_context
+            )
+            run.context_bytes = package.size_bytes()
             run.prompt_digest = prompt_digest(run.prompt)
+            turn.record.full_prompt_bytes = run.full_prompt_bytes
+            turn.record.context_bytes = run.context_bytes
+            turn.record.reused_context_files = run.reused_context_files
             turn.prepare(run.prompt)
             package.save(folder / "context.json")
             run.save(folder / "run.json")

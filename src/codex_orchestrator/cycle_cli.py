@@ -296,6 +296,13 @@ def deliver(
                 "Codex session: "
                 + (f"resuming {run.resume_thread_id}" if run.resume_thread_id else "new")
             )
+            if run.full_prompt_bytes is not None:
+                supplied = len(run.prompt.encode("utf-8"))
+                typer.echo(
+                    f"Prompt: {supplied:,} bytes "
+                    f"({run.full_prompt_bytes - supplied:,} fewer than full payload; "
+                    f"{run.reused_context_files} unchanged file references)"
+                )
             try:
                 while execution.is_busy(project):
                     time.sleep(0.5)

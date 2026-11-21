@@ -31,6 +31,9 @@ class Run(SessionData):
     model: str | None = None
     prompt: str
     prompt_digest: str | None = None
+    full_prompt_bytes: int | None = None
+    context_bytes: int | None = None
+    reused_context_files: int = 0
     error: str | None = None
     verified: bool = False
     worker_contract_version: Literal[1] | None = None

@@ -42,7 +42,7 @@ def build_recovery_brief(state, task, path, package):
         current_owned_inputs=[
             dict(path=r.reference, status=r.status, sha256=r.sha256)
             for r in package.resources
-            if r.kind == "owned_file"
+            if r.kind == "owned_file" or any(a.startswith("owned_file: ") for a in r.aliases)
         ],
         cautions=[
             "Inspect existing partial edits before changing code; preserve unrelated user work.",
@@ -61,11 +61,13 @@ def build_recovery_brief(state, task, path, package):
             if len(raw) > 64 * 1024:
                 raise ValueError("Evidence exceeds retry preview budget")
             evidence = json.loads(raw)
-            brief["commands_observed"] = [
+            observations = [
                 dict(command=clipped(c.get("command"), 800), exit_code=c.get("exit_code"))
-                for c in evidence.get("commands", [])[-8:]
+                for c in evidence.get("commands", [])
                 if isinstance(c, dict)
             ]
+            failures = [c for c in observations if c["exit_code"] != 0]
+            brief["commands_observed"] = (failures or observations)[-3:]
             brief["prior_violations"] = [
                 clipped(str(v), 300) for v in evidence.get("violations", [])[:8]
             ]

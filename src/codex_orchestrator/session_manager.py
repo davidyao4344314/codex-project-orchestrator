@@ -118,6 +118,9 @@ class TurnRecord(SessionData):
     status: Literal["started", "completed", "failed", "blocked", "stopped"] = "started"
     elapsed_seconds: float | None = Field(default=None, ge=0)
     prompt_bytes: int = Field(default=0, ge=0)
+    full_prompt_bytes: int | None = Field(default=None, ge=0)
+    context_bytes: int | None = Field(default=None, ge=0)
+    reused_context_files: int = Field(default=0, ge=0)
     usage: TokenUsage | None = None
     session_reusable: bool = False
 
