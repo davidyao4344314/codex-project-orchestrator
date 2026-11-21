@@ -301,6 +301,7 @@ class DeliveryAction(StrEnum):
     refresh = "refresh"
     merge = "record-merge"
     recover = "recover"
+    reconcile = "reconcile"
 
 
 @app.command()
@@ -413,6 +414,13 @@ def deliver(
                 typer.echo(f"Inspect evidence: {folder}", err=True)
                 typer.echo("Resolve the problem and explicitly retry the task.", err=True)
                 raise typer.Exit(130 if finished.status == "stopped" else 1)
+        elif action == DeliveryAction.reconcile:
+            from codex_orchestrator.evidence_recovery import reconcile_blocked_run
+
+            recovered = reconcile_blocked_run(path, run_id)
+            typer.echo(
+                f"Run {recovered.id}: completed. No Codex call; human verification still required."
+            )
         elif action == DeliveryAction.verify:
             from codex_orchestrator.recovery_brief import safe_folder
 

@@ -116,6 +116,42 @@ def launch(approved_session, technical_payload, monkeypatch, area, mode="complet
     pytest.fail("Fake worker did not finish")
 
 
+@pytest.mark.parametrize("changed", [False, True])
+def test_reconcile_legacy_wrapper_block(approved_session, technical_payload, monkeypatch, changed):
+    from codex_orchestrator import worker_results
+    from codex_orchestrator.evidence_recovery import reconcile_blocked_run
+
+    monkeypatch.setitem(
+        globals(),
+        "FAKE_CODEX",
+        FAKE_CODEX.replace(
+            '"command_execution","command":command,',
+            '"command_execution","command":"/bin/zsh -lc "+shlex.quote(command),',
+        ),
+    )
+    with monkeypatch.context() as legacy:
+        legacy.setattr(
+            worker_results, "commands_match", lambda reported, actual: reported == actual
+        )
+        state, path, run, folder, commands = launch(
+            approved_session, technical_payload, legacy, "general"
+        )
+    assert run.status == "blocked"
+    if changed:
+        owned = state.revisions[-1].design.tasks[0].owned_paths[0]
+        (path.parent / owned).write_text("changed after test\n")
+        with pytest.raises(ValueError, match="changed after execution"):
+            reconcile_blocked_run(path, run.id)
+        assert execution.Run.load(folder / "run.json").status == "blocked"
+    else:
+        recovered = reconcile_blocked_run(path, run.id)
+        assert recovered.status == "completed" and not recovered.verified
+        assert recovered.token_usage == run.token_usage
+        assert (folder / "evidence_reconciliation.json").exists()
+        assert not WorkerEvidence.load(folder / "worker_evidence.json").violations
+    assert len(commands) == 1
+
+
 @pytest.mark.parametrize(
     "area", ["frontend", "backend", "database", "integration", "general", "verification"]
 )
