@@ -1,10 +1,29 @@
 """Reconcile structured worker reports with observed commands and file changes."""
 
+import shlex
 from pathlib import Path
 
 from codex_orchestrator.worker_models import CommandEvidence, WorkerResult
 
 MAX_RESULT_BYTES = 256 * 1024
+
+
+def commands_match(reported: str | None, observed: str) -> bool:
+    if reported is None:
+        return False
+    if observed == reported:
+        return True
+    # Codex's local exec events render an exact command as a login-shell invocation.
+    # Match only the known, literal serialization of ONE complete command argument.
+    # Never strip arbitrary wrappers, expand variables, normalize shell tokens,
+    # accept extra arguments, or execute either string.
+    escapes = str.maketrans({c: "\\" + c for c in '\\"$`'})
+    literals = {shlex.quote(reported)}
+    if "!" not in reported:
+        literals.add('"' + reported.translate(escapes) + '"')
+    return observed in {
+        f"{shell} -lc {literal}" for shell in ("/bin/zsh", "/bin/bash") for literal in literals
+    }
 
 
 def observe_command(event):
@@ -61,9 +80,8 @@ def reconcile_result(spec, report, evidence):
     for check in report.checks:
         if check.outcome == "not_run":
             continue
-        # Shell quoting, wrappers and positional arguments affect behavior. Require
-        # the exact command recorded by Codex rather than treating tokens as equivalent.
-        matches = [c for c in evidence.commands if c.command == check.command]
+        # Require the exact recorded command or its known literal shell wrapper.
+        matches = [c for c in evidence.commands if commands_match(check.command, c.command)]
         match = matches[-1] if matches else None
         expected_pass = check.outcome == "passed"
         if match is None or match.exit_code is None or (match.exit_code == 0) != expected_pass:

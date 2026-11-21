@@ -16,7 +16,7 @@ from codex_orchestrator.worker_models import (
     WorkerResult,
     WorkerSpec,
 )
-from codex_orchestrator.worker_results import reconcile_result
+from codex_orchestrator.worker_results import commands_match, reconcile_result
 
 
 def digest(value):
@@ -75,6 +75,22 @@ def test_shell_semantics_are_not_discarded(reported_command, observed_command):
     )
     assert reconcile_result(spec, reported, evidence) == "blocked"
     assert evidence.violations
+
+
+def test_literal_codex_wrapper_matches_multiline_command():
+    command = "python3 -B - <<'PY'\nprint(\"ok\")\nPY"
+    observed = '/bin/zsh -lc "' + command.replace('"', '\\"') + '"'
+    assert commands_match(command, observed)
+    assert not commands_match(command, observed + " extra")
+    assert not commands_match(command, observed.replace("ok", "different"))
+    spec = contract()
+    evidence = WorkerEvidence(
+        commands=[CommandEvidence(event_id="actual", exit_code=0, command=observed)]
+    )
+    assert reconcile_result(spec, result(spec, command), evidence) == "completed"
+    assert evidence.check_matches == {"C1": "actual"}
+    evidence.commands.append(CommandEvidence(event_id="last", exit_code=1, command=observed))
+    assert reconcile_result(spec, result(spec, command), evidence) == "blocked"
 
 
 def test_post_run_unreadable_owned_file_cannot_complete(tmp_path, monkeypatch):

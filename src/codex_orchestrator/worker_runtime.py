@@ -110,9 +110,10 @@ WORKER_INSTRUCTIONS = (
     "credentials/private keys/auth caches, spawn agents or use external integrations. "
     "Return WorkerResult JSON matching the schema: copy task_id, agent_id, profile and "
     "context_digest from worker_spec, list only observed owned-file changes, and run every "
-    "specified check. Report exact check IDs, executed commands (including wrappers), actual "
-    "outcomes and details; use not_run with a reason when necessary. Keep human checks for "
-    "the user. Only report completed if all required checks passed with no blockers. "
+    "specified check. Report exact check IDs, the exact submitted command body or recorded "
+    "wrapper, actual outcomes and details; use not_run with a reason when necessary. "
+    "Keep human checks for the user. Only report completed if all required checks passed "
+    "with no blockers. "
     "Otherwise report blocked/failed. Give a short factual handoff with relevant interfaces, "
     "changes and caveats; no transcript or repeated logs.\n"
 )
