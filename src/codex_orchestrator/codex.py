@@ -14,6 +14,7 @@ import typer
 from pydantic import BaseModel, ValidationError
 
 from codex_orchestrator.models import PlanContent
+from codex_orchestrator.session_manager import ManagedTurn, thread_id
 
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 KEEP_SECRETS_PRIVATE = (
@@ -91,6 +92,7 @@ def codex_response(
     model: str | None = None,
     timeout: int = 300,
     on_response: Callable[[str | None], None] | None = None,
+    turn: ManagedTurn | None = None,
 ) -> ResponseModel:
     """Run a read-only Codex turn and validate its structured response."""
     executable = find_codex()
@@ -103,27 +105,25 @@ def codex_response(
         schema = Path(temporary) / "schema.json"
         response = Path(temporary) / "response.json"
         schema.write_text(json.dumps(response_model.model_json_schema()), encoding="utf-8")
-        command = [
+        command = exec_command(
             executable,
-            "--ask-for-approval",
-            "never",
-            "exec",
-            "--sandbox",
-            "read-only",
-            "--ephemeral",
-            "--skip-git-repo-check",
-            "--color",
-            "never",
-            "--cd",
-            str(project.resolve()),
-            "--output-schema",
-            str(schema),
-            "--output-last-message",
-            str(response),
-        ]
-        if model is not None:
-            command.extend(["--model", model])
-        command.append("-")
+            project,
+            sandbox="read-only",
+            model=model,
+            schema=schema,
+            response=response,
+            json_events=turn is not None,
+            ephemeral=turn is None or not turn.persistent,
+            resume_id=turn.resume_id if turn else None,
+            no_daemon=turn is not None,
+        )
+        if turn:
+            turn.prepare(prompt)
+            typer.echo(
+                f"Codex session ({turn.record.role}): "
+                + (f"resuming {turn.resume_id}" if turn.resume_id else "new"),
+                err=True,
+            )
         typer.echo(f"Request model: {model or 'Codex configured default'}", err=True)
         try:
             completed = subprocess.run(
@@ -135,14 +135,27 @@ def codex_response(
                 errors="replace",
                 timeout=timeout,
                 check=False,
+                cwd=project.resolve(),
             )
         except subprocess.TimeoutExpired as exc:
             raise CodexError(f"Codex planning timed out after {timeout} seconds.") from exc
         except OSError as exc:
             raise CodexError(f"Could not start Codex: {exc}") from exc
+        if turn:
+            for line in completed.stdout.splitlines():
+                try:
+                    turn.events.observe(json.loads(line))
+                except ValueError:
+                    continue
         if completed.returncode != 0:
             detail = completed.stderr.strip()[-2000:] or "No diagnostic output was returned."
+            if turn and turn.resume_id:
+                detail += "\nThe saved session will be retired; explicitly retry to start fresh."
             raise CodexError(f"Codex exited with code {completed.returncode}: {detail}")
+        if turn and (turn.events.failed or not turn.events.matches(turn.resume_id)):
+            raise CodexError(
+                "Codex returned failed or mismatched session events. Explicitly retry fresh."
+            )
         try:
             result = response_model.model_validate_json(response.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, ValidationError) as exc:
@@ -153,8 +166,59 @@ def codex_response(
         # because some CLI versions omit the header or change its format.
         match = re.search(r"(?m)^model:\s*(\S+)", completed.stderr)
         reported_model = match.group(1) if match else None
+        if turn:
+            turn.record.reported_model = reported_model
+            if turn.events.usage:
+                usage = turn.events.usage
+                typer.echo(
+                    f"Turn tokens: input {usage.input_tokens}, cached {usage.cached_input_tokens}, "
+                    f"output {usage.output_tokens}",
+                    err=True,
+                )
         label = reported_model or f"unreported by CLI (requested {model or 'configured default'})"
         typer.echo(f"Response model: {label}", err=True)
         if on_response is not None:
             on_response(reported_model)
         return result
+
+
+def exec_command(
+    executable,
+    project,
+    *,
+    sandbox,
+    model=None,
+    schema=None,
+    response=None,
+    json_events=False,
+    ephemeral=False,
+    resume_id=None,
+    no_daemon=False,
+):
+    """Keep sandbox, working directory and output schema explicit on every resumed turn."""
+    if resume_id and (thread_id(resume_id) != resume_id or ephemeral):
+        raise ValueError("Resume needs an exact persistent Codex session UUID.")
+    command = [executable]
+    if no_daemon:
+        command.append("--no-daemon")
+    command += [
+        "--ask-for-approval",
+        "never",
+        "exec",
+        "--sandbox",
+        sandbox,
+    ]
+    if json_events:
+        command.append("--json")
+    if ephemeral:
+        command.append("--ephemeral")
+    command += ["--skip-git-repo-check", "--color", "never", "--cd", str(Path(project).resolve())]
+    if schema is not None:
+        command += ["--output-schema", str(schema)]
+    if response is not None:
+        command += ["--output-last-message", str(response)]
+    if model:
+        command += ["--model", model]
+    if resume_id:
+        command += ["resume", resume_id]
+    return [*command, "-"]

@@ -10,6 +10,9 @@ htmlcov/
 build/
 dist/
 plans/
+*.codex-sessions.json
+*.codex-sessions.lock
+*.codex-turns/
 .env
 .env.*
 auth.json
