@@ -50,6 +50,14 @@ class SessionData(BaseModel):
                 temporary.unlink(missing_ok=True)
 
 
+class ModelPolicy(SessionData):
+    """User-approved palette of exact CLI model IDs (None uses the Codex default)."""
+
+    routine: Text | None
+    standard: Text | None
+    strong_reasoning: Text | None
+
+
 class Brief(SessionData):
     goal: Text
     users: list[Text]
@@ -114,6 +122,7 @@ class PlanningSession(SessionData):
     planning_model: Text | None = None
     planning_route: PlanningRoute = PlanningRoute.AUTO
     recommended_route: Literal["compact", "standard"] | None = None
+    model_policy: ModelPolicy | None = None
     models_configured: bool = False
     response_sources: list[ResponseSource] = Field(default_factory=list)
     pending_question_model: Text | None = None

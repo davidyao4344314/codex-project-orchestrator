@@ -15,6 +15,7 @@ from codex_orchestrator.session import (
     Answer,
     Brief,
     DraftPlan,
+    ModelPolicy,
     PlanningRoute,
     PlanningSession,
     ResponseSource,
@@ -60,6 +61,7 @@ def start_session(
     planning_model: str | None,
     timeout: int,
     route: PlanningRoute = PlanningRoute.AUTO,
+    model_policy: ModelPolicy | None = None,
 ) -> None:
     path = (output or Path("plans") / f"session-{uuid4().hex[:12]}.json").resolve()
     if path.exists():
@@ -76,6 +78,7 @@ def start_session(
         planning_model=planning_model,
         timeout=timeout,
         route=route,
+        model_policy=model_policy,
     )
     run_session(session, path)
 
@@ -91,6 +94,7 @@ def create_session(
     timeout: int = 300,
     previous_cycle_context: str | None = None,
     route: PlanningRoute = PlanningRoute.AUTO,
+    model_policy: ModelPolicy | None = None,
 ) -> PlanningSession:
     project = project.expanduser().resolve()
     if not project.is_dir():
@@ -103,6 +107,8 @@ def create_session(
         timeout=timeout,
         previous_cycle_context=previous_cycle_context,
         planning_route=route,
+        model_policy=model_policy,
+        models_configured=model_policy is not None,
         answers=[Answer(prompt="What would you like to build?", response=idea)],
     )
     session.save(path, new=True)

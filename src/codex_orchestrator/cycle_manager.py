@@ -202,6 +202,7 @@ def start_next(source: Path, goal: str) -> Path:
             planning_model=session.planning_model,
             previous_cycle_context=context,
             route=session.planning_route,
+            model_policy=session.model_policy,
         )
         history.cycles.append(
             Cycle(

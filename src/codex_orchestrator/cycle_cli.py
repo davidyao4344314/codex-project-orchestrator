@@ -23,7 +23,7 @@ from codex_orchestrator.codex import CodexError
 from codex_orchestrator.cycle_store import find_history
 from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.run_store import Run, latest_runs, run_directory
-from codex_orchestrator.session import PlanningRoute
+from codex_orchestrator.session import PlanningRoute, PlanningSession
 from codex_orchestrator.stage_review import review_stage
 
 app = typer.Typer(no_args_is_help=True)
@@ -109,6 +109,58 @@ def sessions(source: Path):
     """Inspect saved requirement, architect and worker session IDs."""
     try:
         typer.echo(json.dumps(usage_report.session_report(source), indent=2))
+    except (OSError, ValueError, CodexError) as exc:
+        fail(exc)
+
+
+@app.command()
+def models(
+    source: Path,
+    show: bool = False,
+    routine: str | None = None,
+    standard: str | None = None,
+    strong: str | None = None,
+):
+    """Discover model IDs and approve a difficulty-based model palette for this cycle."""
+    from codex_orchestrator.model_catalog import discover_models, selected_policy
+
+    try:
+        source = source.resolve()
+        state = PlanningSession.load(source)
+        if show:
+            if any(value is not None for value in (routine, standard, strong)):
+                raise ValueError("Omit model overrides when using --show.")
+            if state.model_policy is None:
+                typer.echo("No automatic model palette configured.")
+            else:
+                typer.echo(state.model_policy.model_dump_json(indent=2))
+            return
+        cycle_manager.require_active(source)
+        if execution.is_busy(state.project):
+            raise ValueError("Wait for the active project operation before changing models.")
+        offers = discover_models(Path(state.project))
+        typer.echo("Selectable models reported by Codex:")
+        for offer in offers:
+            typer.echo(f"  {offer.id} — {offer.label}")
+        policy = selected_policy(offers, routine=routine, standard=standard, strong=strong)
+        typer.echo("Proposed model palette:")
+        typer.echo(policy.model_dump_json(indent=2))
+        typer.echo("Null uses your Codex default; account access may change.")
+        if not typer.confirm(
+            "Use this palette for future planning and automatic agent allocation?"
+        ):
+            return
+        with git_service.writer(Path(state.project)):
+            cycle_manager.require_active(source)
+            state.require_current(source)
+            state.model_policy = policy
+            state.intake_model = policy.routine
+            state.planning_model = policy.standard
+            state.models_configured = True
+            state.save(source)
+        typer.echo(
+            "Saved. Future designs use this palette; existing approved models are unchanged."
+        )
     except (OSError, ValueError, CodexError) as exc:
         fail(exc)
 
