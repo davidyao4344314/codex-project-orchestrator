@@ -4,6 +4,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -65,6 +66,7 @@ class TurnEvents:
     completed: bool = False
     failed: bool = False
     invalid_thread: bool = False
+    reconnect_warning: str | None = None
     tool_items: set[str] = field(default_factory=set)
     command_items: set[str] = field(default_factory=set)
 
@@ -88,6 +90,12 @@ class TurnEvents:
                     self.tool_items.add(item["id"])
                 if item.get("type") == "command_execution":
                     self.command_items.add(item["id"])
+        elif (
+            kind == "error"
+            and isinstance(message := event.get("message"), str)
+            and re.fullmatch(r"Reconnecting\.\.\. \d+/\d+ \([^\n]+\)", message)
+        ):
+            self.reconnect_warning = message[:500]
         elif kind in {"turn.failed", "error"}:
             self.failed = True
 

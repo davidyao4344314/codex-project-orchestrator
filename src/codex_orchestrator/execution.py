@@ -349,7 +349,9 @@ def _worker(executable, project, folder, lock, stop, turn=None):
                         limit = ContextLimits().max_handoff_bytes
                         run.handoff_summary = raw[:limit].decode("utf-8", errors="ignore")
                         run.handoff_truncated = len(raw) > limit
-                    if event.get("type") in {"turn.failed", "error"}:
+                    if observed_events.reconnect_warning:
+                        run.session_warning = observed_events.reconnect_warning
+                    if event.get("type") in {"turn.failed", "error"} and observed_events.failed:
                         run.error = str(event.get("error", event.get("message", "Codex failed")))
             code = process.wait()
             if not observed_events.matches(run.resume_thread_id):
@@ -364,7 +366,9 @@ def _worker(executable, project, folder, lock, stop, turn=None):
                 )
             )
             if run.status == "failed" and not run.error:
-                run.error = f"Codex exited with code {code}; see diagnostics."
+                run.error = observed_events.reconnect_warning or (
+                    f"Codex exited with code {code}; see diagnostics."
+                )
             if run.branch and git(Path(project), "symbolic-ref", "--short", "HEAD") != run.branch:
                 raise ValueError("Worker changed the stage branch; inspect the repository.")
             if spec and before:

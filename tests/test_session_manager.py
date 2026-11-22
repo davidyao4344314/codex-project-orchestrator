@@ -132,3 +132,15 @@ def test_ephemeral_review_never_resumes_and_invalid_resume_fails(tmp_path):
     with pytest.raises(ValueError, match="UUID"):
         exec_command("codex", tmp_path, sandbox="read-only", resume_id="--last")
     assert sessions.TokenUsage.from_event({"input_tokens": True, "output_tokens": -10}) is None
+
+
+def test_reconnect_warning_does_not_mask_final_completed_turn():
+    from codex_orchestrator.session_manager import TurnEvents
+
+    events = TurnEvents()
+    events.observe({"type": "error", "message": "Reconnecting... 2/5 (capacity)"})
+    events.observe({"type": "turn.completed", "usage": {"input_tokens": 10}})
+    assert events.completed and not events.failed
+    assert events.reconnect_warning
+    events.observe({"type": "turn.failed"})
+    assert events.failed
