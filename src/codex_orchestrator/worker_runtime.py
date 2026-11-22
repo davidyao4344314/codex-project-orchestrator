@@ -12,6 +12,8 @@ from codex_orchestrator.worker_models import WorkerResult, WorkerSpec, artifact_
 from codex_orchestrator.worker_profiles import validate_owned_paths, worker_spec
 from codex_orchestrator.worker_results import handoff_text, load_result, reconcile_result
 
+MAX_WORKER_PROMPT_BYTES = 64 * 1024
+
 
 def prepare_worker(package, project, folder):
     spec = worker_spec(package)
@@ -103,15 +105,20 @@ WORKER_INSTRUCTIONS = (
     "report blocked if more files are needed. Use supplied current hashes. An unchanged_reference "
     "is the same file/hash previously supplied in this thread; if its content is unavailable "
     "or uncertain, read only that exact current project file before using it. "
-    "Check its supplied hash before relying on it. For optional_reference, read the exact "
-    "file only if needed. Changed, missing "
+    "Check its supplied hash before relying on it. A required_reference must be read from "
+    "the exact local path and checked against its supplied hash before edits. "
+    "For optional_reference, read the exact file only if needed. Use inline content without "
+    "rereading unchanged files unless necessary. Changed, missing "
     "or incomplete required inputs block execution; never assume unavailable optional content. "
     "Do not switch branches, commit, merge, push, deploy, delete user data, read or modify "
     "credentials/private keys/auth caches, spawn agents or use external integrations. "
     "Return WorkerResult JSON matching the schema: copy task_id, agent_id, profile and "
     "context_digest from worker_spec, list only observed owned-file changes, and run every "
-    "specified check. Report exact check IDs, the exact submitted command body or recorded "
-    "wrapper, actual outcomes and details; use not_run with a reason when necessary. "
+    "specified check. Use focused checks during edits; run required regression checks at the "
+    "appropriate gate. For pytest prefer quiet output and --tb=line; retain full diagnostics "
+    "locally when necessary and inspect specific failing tests. Stop promptly when a failure "
+    "requires changes outside ownership. Report exact check IDs, submitted command body "
+    "or recorded wrapper, actual outcomes and details; use not_run with a reason when necessary. "
     "Keep human checks for the user. Only report completed if all required checks passed "
     "with no blockers. "
     "Otherwise report blocked/failed. Give a short factual handoff with relevant interfaces, "
@@ -150,7 +157,8 @@ def compact_worker_prompt(
         return WORKER_INSTRUCTIONS + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
     prompt = render()
-    if len(prompt.encode("utf-8")) > package.limits.max_package_bytes:
+    budget = min(package.limits.max_package_bytes, MAX_WORKER_PROMPT_BYTES)
+    if len(prompt.encode("utf-8")) > budget:
         # Optional previews must not crowd out required current context.
         removable = sorted(
             (
@@ -172,12 +180,12 @@ def compact_worker_prompt(
             else:
                 item["content_mode"] = "optional_reference"
             prompt = render()
-            if len(prompt.encode("utf-8")) <= package.limits.max_package_bytes:
+            if len(prompt.encode("utf-8")) <= budget:
                 break
-    if len(prompt.encode("utf-8")) > package.limits.max_package_bytes:
+    if len(prompt.encode("utf-8")) > budget:
         raise ValueError(
             "Actual worker prompt exceeds the context budget. Narrow the assignment or "
-            "select a larger approved context budget before dispatch."
+            "reduce unnecessary context before dispatch (maximum wire budget 64 KiB)."
         )
     return prompt, baseline, reused
 

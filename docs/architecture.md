@@ -221,10 +221,12 @@ Producer source files are current workspace contents, not a Git snapshot of the 
 `wire_context` projects the full snapshot into a compact worker payload: the worker spec
 owns checks and acceptance criteria, stage-wide peer metadata is not sent to implementation
 tasks, and empty/duplicate resource metadata is omitted. Same-thread prior context is
-validated by its saved run and digest. Only large unchanged in-project source files are
-replaced by exact path/hash references; a model can read them on demand if history was
-compacted. Current changes and required summaries/skills remain inline. Optional preview
-content is the first to be removed to meet the actual prompt cap. The complete canonical
+validated by its saved run and digest. Included local source files of at least 8 KiB use
+exact path/hash references even on fresh turns. Required references must be read and checked
+before edits; optional references are read as needed. Instructions, skills and required
+handoffs remain inline. The outgoing prompt is capped at 64 KiB independently of the
+canonical snapshot allowance (or the lower configured package limit). Optional preview
+content is removed first when needed. The complete canonical
 snapshot and exact transmitted prompt remain available for review.
 
 Context limits are additive session settings with defaults for older sessions. Changing limits
@@ -236,6 +238,11 @@ implemented. Context exclusion heuristics do not guarantee removal of every poss
 The Codex sandbox and its own instruction loading remain separate from package selection.
 
 The terminal `cycle context` command inspects or explicitly updates limits without inference.
+It includes a fresh worker prompt estimate and the owned-file count. The `cycle benchmark
+SESSION RUN_ID` command measures a saved worker prompt against a fresh compact replay
+without inference. Workers are instructed to prefer concise pytest diagnostics and targeted
+tests, retaining full logs locally where necessary. These are model instructions, not an
+enforced output limit on Codex tools.
 The usage report records full-versus-compacted prompt bytes and repeated source references;
 these figures measure only the application payload and not the CLI schema, cached history
 or provider token billing. Independent review shares task definitions once, uses diffs and

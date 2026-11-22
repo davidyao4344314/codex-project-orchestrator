@@ -2,6 +2,7 @@
 
 SOURCE_KINDS = {"project_file", "owned_file", "upstream_file"}
 MIN_REFERENCE_BYTES = 1024
+LARGE_FILE_BYTES = 8 * 1024
 
 
 def worker_context(package, spec, previous=None):
@@ -43,6 +44,17 @@ def worker_context(package, spec, previous=None):
     reused = 0
     for item in wire["resources"]:
         if (
+            item["kind"] in SOURCE_KINDS
+            and item["status"] == "included"
+            and item["sha256"]
+            and not any(alias.startswith(("instruction: ", "skill: ")) for alias in item["aliases"])
+            and len((item["content"] or "").encode("utf-8")) >= LARGE_FILE_BYTES
+        ):
+            item["content"] = None
+            item["content_mode"] = (
+                "required_reference" if item["required"] else "optional_reference"
+            )
+        elif (
             item["kind"] in SOURCE_KINDS
             and item["status"] == "included"
             and (item["reference"], item["sha256"]) in prior_hashes

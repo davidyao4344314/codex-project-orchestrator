@@ -117,3 +117,35 @@ def test_final_prompt_budget_removes_optional_previews_before_required_inputs(co
     package.limits.max_package_bytes = 1024
     with pytest.raises(ValueError, match="Actual worker prompt exceeds"):
         compact_worker_prompt(worker_spec(package), package, [])
+
+
+def test_large_required_file_is_audited_reference(context_design):
+    state, path = context_design
+    task = state.revisions[-1].design.tasks[0]
+    (path.parent / "contract.py").write_text("contract content\n" * 700)
+    file_context(task, "contract.py")
+    package = build_context(state, task, path)
+    before = package.digest()
+    prompt, _, _ = compact_worker_prompt(worker_spec(package), package, [])
+    resource = resource_in(prompt, "contract.py")
+    assert resource["content_mode"] == "required_reference"
+    assert resource["sha256"]
+    assert "content" not in resource
+    assert package.digest() == before
+
+
+def test_saved_run_benchmark_is_read_only(approved_session, technical_payload, monkeypatch):
+    from typer.testing import CliRunner
+
+    from codex_orchestrator.cli import app
+
+    state, path, run, folder, commands = launch(
+        approved_session, technical_payload, monkeypatch, "general"
+    )
+    saved = (folder / "run.json").read_bytes()
+    result = CliRunner().invoke(app, ["cycle", "benchmark", str(approved_session[0]), run.id])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["original_bytes"] == len(run.prompt.encode())
+    assert (folder / "run.json").read_bytes() == saved
+    assert len(commands) == 1

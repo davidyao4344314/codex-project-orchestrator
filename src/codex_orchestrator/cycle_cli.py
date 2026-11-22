@@ -223,6 +223,17 @@ def context(
         if assignment is None:
             raise ValueError("Unknown task ID. Run cycle context without --task to list tasks.")
         package = build_context(state, assignment, path)
+        from codex_orchestrator.worker_profiles import worker_spec
+        from codex_orchestrator.worker_runtime import compact_worker_prompt
+
+        wire_preview = None
+        wire_blocker = None
+        if not package.blockers:
+            try:
+                prompt, _, _ = compact_worker_prompt(worker_spec(package), package, [])
+                wire_preview = len(prompt.encode("utf-8"))
+            except ValueError as exc:
+                wire_blocker = str(exc)
         if full:
             typer.echo(package.model_dump_json(indent=2))
         else:
@@ -232,6 +243,9 @@ def context(
                         "task_id": task,
                         "agent_id": package.agent_id,
                         "snapshot_bytes": package.size_bytes(),
+                        "fresh_worker_prompt_bytes": wire_preview,
+                        "worker_prompt_blocker": wire_blocker,
+                        "owned_file_count": len(assignment.owned_paths),
                         "limits": package.limits.model_dump(),
                         "blockers": package.blockers,
                         "warnings": package.warnings,
@@ -239,7 +253,7 @@ def context(
                             resource.model_dump(exclude={"content"})
                             for resource in package.resources
                         ],
-                        "note": "Canonical preview; actual dispatch compacts the saved prompt.",
+                        "note": "Fresh preview; branch, audit paths and retry context add bytes.",
                     },
                     indent=2,
                 )
@@ -280,6 +294,42 @@ def next_cycle(source: Path, goal: str | None = None):
         path = cycle_manager.start_next(source.resolve(), goal)
         typer.echo(f"New cycle session: {path}")
         typer.echo(f"Continue with: orchestrator resume '{path}'")
+    except (OSError, ValueError, CodexError) as exc:
+        fail(exc)
+
+
+@app.command()
+def benchmark(source: Path, run_id: str):
+    """Replay a saved worker payload locally without launching Codex."""
+    from codex_orchestrator.recovery_brief import safe_folder
+    from codex_orchestrator.worker_models import WorkerSpec
+    from codex_orchestrator.worker_runtime import compact_worker_prompt, saved_context
+
+    try:
+        folder = safe_folder(source.resolve().with_suffix(".design.json"), run_id)
+        run = Run.load(folder / "run.json")
+        package = saved_context(run, folder)
+        spec = WorkerSpec.load(folder / "worker_spec.json")
+        prompt, _, _ = compact_worker_prompt(spec, package, [], branch=run.branch)
+        original = len(run.prompt.encode("utf-8"))
+        optimized = len(prompt.encode("utf-8"))
+        typer.echo(
+            json.dumps(
+                {
+                    "original_bytes": original,
+                    "fresh_replay_bytes": optimized,
+                    "saved_bytes": original - optimized,
+                    "largest_source_files": [
+                        {"path": resource.reference, "bytes": resource.size_bytes}
+                        for resource in sorted(
+                            package.resources, key=lambda item: item.size_bytes or 0, reverse=True
+                        )[:10]
+                    ],
+                    "note": "Fresh replay excludes retry history; bytes are not account usage.",
+                },
+                indent=2,
+            )
+        )
     except (OSError, ValueError, CodexError) as exc:
         fail(exc)
 
