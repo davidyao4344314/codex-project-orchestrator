@@ -282,6 +282,13 @@ def inspect_project(source: Path, design_path: Path | None = None) -> ResumeSnap
                         "merge_pending",
                         "Merge the reviewed stage into the local base and record its merge.",
                     )
+                    if receipt.remote:
+                        from codex_orchestrator.github_pr import repository_for
+
+                        if repository_for(receipt.remote):
+                            snapshot.next_action = (
+                                "Inspect or create the GitHub PR and explicitly authorize merge."
+                            )
                     return snapshot
             try:
                 preview = git_service.preview(path, stage.id)

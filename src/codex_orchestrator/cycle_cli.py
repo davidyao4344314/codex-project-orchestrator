@@ -22,6 +22,7 @@ from codex_orchestrator import (
 from codex_orchestrator.codex import CodexError
 from codex_orchestrator.cycle_store import find_history
 from codex_orchestrator.design_models import DesignSession
+from codex_orchestrator.github_pr_cli import PRAction
 from codex_orchestrator.run_store import Run, latest_runs, run_directory
 from codex_orchestrator.session import PlanningRoute, PlanningSession
 from codex_orchestrator.stage_review import review_stage
@@ -123,6 +124,17 @@ def register(source: Path):
         fail(exc)
 
 
+@app.command("pr")
+def pr(source: Path, action: PRAction, stage: str = typer.Option(...)):
+    """Create, inspect or explicitly merge a reviewed GitHub pull request."""
+    from codex_orchestrator.github_pr_cli import operate
+
+    try:
+        operate(source.resolve(), action, stage)
+    except (OSError, ValueError, CodexError) as exc:
+        fail(exc)
+
+
 @app.command()
 def history(source: Path):
     """Display timestamped goals, outcomes, commits and feedback."""
@@ -154,6 +166,15 @@ def status(source: Path):
             design_path = current.with_suffix(".design.json")
             if design_path.exists():
                 state = DesignSession.load(design_path)
+                if snapshot.status == "merge_pending" and snapshot.stage_id:
+                    from codex_orchestrator import github_pr
+                    from codex_orchestrator.feature_delivery import pr_guidance
+
+                    receipt = git_service.GitPublication.load(
+                        git_service.publication_path(design_path)
+                    )
+                    if receipt.pushed and github_pr.repository_for(receipt.remote):
+                        pr_guidance(design_path, current, state, receipt)
                 if state.phase == "approved" and snapshot.status not in {
                     "stale_design",
                     "active",

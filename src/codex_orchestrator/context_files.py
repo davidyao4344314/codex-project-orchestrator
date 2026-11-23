@@ -48,6 +48,7 @@ def is_private_path(path: Path) -> bool:
                     ".review-inputs",
                     ".chat.json",
                     ".reviews.json",
+                    ".pull-requests.json",
                     ".coordination",
                 )
             )

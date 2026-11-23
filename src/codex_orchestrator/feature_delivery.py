@@ -11,6 +11,7 @@ from codex_orchestrator import (
     cycle_manager,
     execution,
     git_service,
+    github_pr,
     review_agent,
     review_store,
     stage_branches,
@@ -20,6 +21,8 @@ from codex_orchestrator.cycle_store import find_history
 from codex_orchestrator.design import check_source
 from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.design_validation import stage_check_description
+from codex_orchestrator.github_pr_cli import show_description
+from codex_orchestrator.pr_description import description
 from codex_orchestrator.run_store import Run, run_directory
 from codex_orchestrator.stage_review import current_review, review_stage
 
@@ -129,12 +132,26 @@ def deliver_feature(
             if receipt.remote and not receipt.pushed:
                 git_service.validate_publication(path, receipt)
                 typer.echo(f"Commit {receipt.commit} → {receipt.remote} ({receipt.branch})")
-                if typer.confirm("Approve push of this existing commit?"):
-                    push_receipt(path, receipt)
+                details = None
+                if github_pr.repository_for(receipt.remote) and receipt.commit != item.start_commit:
+                    details = description(state, path, stage_id, receipt.paths)
+                    show_description(details)
+                question = (
+                    "Approve push and GitHub pull request for this commit?"
+                    if details
+                    else "Approve push of this existing commit?"
+                )
+                if typer.confirm(question):
+                    pushed = push_receipt(path, receipt)
+                    if details:
+                        publish_pr(path, source, pushed, details)
             else:
                 typer.echo(f"Feature committed: {receipt.commit}. Merge and record the stage.")
+                if receipt.pushed and github_pr.repository_for(receipt.remote):
+                    pr_guidance(path, source, state, receipt)
             return
     stage_branches.prepare(path, stage_id)
+    github_pr.preflight_branch(state, path, stage_id, git_service.git(project, "rev-parse", "HEAD"))
     if not (review := current_review(state, stage_id)) or not review.approved:
         review_stage(state, path, stage_id, "", approved=True)
     schedule = advance_tasks(path, stage_id, project, retry=retry)
@@ -159,6 +176,7 @@ def deliver_feature(
     ):
         cycle_feedback.accept_goal(source, stage_id, "Feature checks accepted by operator.")
     preview = git_service.preview(path, stage_id)
+    github_pr.preflight_branch(state, path, stage_id, preview.head)
     review = review_store.latest_reviewer(path, stage_id)
     if retry_review or review is None or review.fingerprint != preview.fingerprint:
         review = review_agent.run_review(path, preview)
@@ -174,8 +192,14 @@ def deliver_feature(
         return
     typer.echo(f"Branch: {preview.branch}\nDestination: {preview.remote or 'local Git repository'}")
     typer.echo("Files: " + ", ".join(preview.paths))
+    details = None
+    if github_pr.repository_for(preview.remote):
+        details = description(state, path, stage_id, preview.paths)
+        show_description(details)
     question = (
-        "Approve feature, commit and push?"
+        "Approve feature, commit, push and create GitHub pull request?"
+        if details
+        else "Approve feature, commit and push?"
         if preview.remote
         else "Approve feature and commit locally?"
     )
@@ -185,7 +209,10 @@ def deliver_feature(
     receipt = git_service.commit(path, preview, f"Deliver {stage.title}", approval_id=approval.id)
     typer.echo(f"Committed {receipt.commit}")
     if receipt.remote:
-        push_receipt(path, receipt)
+        pushed = push_receipt(path, receipt)
+        if details:
+            publish_pr(path, source, pushed, details)
+            return
     typer.echo(f"Merge the reviewed stage into {settings.base} and record its merge.")
 
 
@@ -193,5 +220,39 @@ def push_receipt(path, receipt):
     permission = git_service.PushPermission(
         commit=receipt.commit, branch=receipt.branch, remote=receipt.remote
     )
-    git_service.push(path, permission=permission)
+    pushed = git_service.push(path, permission=permission)
     typer.echo(f"Pushed {receipt.commit} to {receipt.branch}")
+    return pushed
+
+
+def pr_guidance(path, source, state, receipt):
+    _, revision = stage_branches.current(state, path)
+    if receipt.commit == revision.stages[receipt.stage_id].start_commit:
+        typer.echo(
+            f"Next: orchestrator cycle deliver '{source}' record-merge --stage {receipt.stage_id}"
+        )
+        return
+    record = github_pr.saved_pr(path, state, receipt.stage_id)
+    if record:
+        typer.echo(f"PR #{record.number}: {record.url}")
+        action = "merge" if record.merge_commit else "status"
+    else:
+        action = "create"
+    typer.echo(f"Next: orchestrator cycle pr '{source}' {action} --stage {receipt.stage_id}")
+
+
+def publish_pr(path, source, receipt, details):
+    state = DesignSession.load(path)
+    _, revision = stage_branches.current(state, path)
+    if receipt.commit == revision.stages[receipt.stage_id].start_commit:
+        typer.echo("No new stage commit for a PR. Record the existing base merge.")
+        pr_guidance(path, source, state, receipt)
+        return
+    try:
+        record = github_pr.create(path, receipt.stage_id, approved_description=details)
+    except (OSError, ValueError):
+        typer.echo("The approved push was saved. Resume PR creation without rerunning workers.")
+        pr_guidance(path, source, state, receipt)
+        raise
+    typer.echo(f"PR #{record.number}: {record.url}")
+    typer.echo(f"Next: orchestrator cycle pr '{source}' status --stage {receipt.stage_id}")
