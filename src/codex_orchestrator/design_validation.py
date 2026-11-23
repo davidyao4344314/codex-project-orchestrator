@@ -36,6 +36,32 @@ def task_graph(design: TechnicalDesign) -> dict[str, set[str]]:
     }
 
 
+def stage_check_description(stage, index, check):
+    return f"[{stage.id}:G{index}] {check.check} (expected: {check.expected_result})"
+
+
+def assign_stage_checks(design: TechnicalDesign) -> None:
+    """Bind gate checks to a task that runs after all other stage writers."""
+    predecessors = ancestors(task_graph(design))
+    for stage in design.stages:
+        tasks = [task for task in design.tasks if task.stage_id == stage.id]
+        writers = {task.id for task in tasks if task.owned_paths}
+        for index, check in enumerate(stage.gate.agent_checks, 1):
+            eligible = [
+                task
+                for task in tasks
+                if task.agent_id == check.agent_id and writers - {task.id} <= predecessors[task.id]
+            ]
+            if not eligible:
+                raise CodexError(
+                    f"Stage {stage.id} gate check G{index} needs a task owned by "
+                    f"{check.agent_id} after all stage writers."
+                )
+            description = stage_check_description(stage, index, check)
+            if not any(description in task.automated_checks for task in eligible):
+                eligible[-1].automated_checks.append(description)
+
+
 def project_path(project: Path, reference: str) -> Path:
     path = PurePosixPath(reference)
     if (

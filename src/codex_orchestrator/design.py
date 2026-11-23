@@ -13,7 +13,11 @@ from codex_orchestrator.design_models import (
     DesignSession,
     source_digest,
 )
-from codex_orchestrator.design_validation import context_blockers, validate_design
+from codex_orchestrator.design_validation import (
+    assign_stage_checks,
+    context_blockers,
+    validate_design,
+)
 from codex_orchestrator.interactive import READ_ONLY, ask, model_label
 from codex_orchestrator.model_allocation import revision_models
 from codex_orchestrator.planning_context import FOCUSED_EXPLORATION, planning_prompt, repository_map
@@ -304,6 +308,7 @@ def _generate_design(state, output, timeout, data, turn):
     else:
         try:
             validate_design(reply.design, state.source.brief, Path(state.project))
+            assign_stage_checks(reply.design)
         except CodexError as exc:
             state.validation_feedback = [str(exc)]
             state.save(output)

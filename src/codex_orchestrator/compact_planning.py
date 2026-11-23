@@ -9,7 +9,7 @@ from pydantic import Field, model_validator
 
 from codex_orchestrator.codex import CodexError, codex_response
 from codex_orchestrator.design_models import DesignRevision, TechnicalDesign, source_digest
-from codex_orchestrator.design_validation import validate_design
+from codex_orchestrator.design_validation import assign_stage_checks, validate_design
 from codex_orchestrator.models import Text
 from codex_orchestrator.planning_context import FOCUSED_EXPLORATION, planning_prompt, repository_map
 from codex_orchestrator.session import DraftPlan, Revision, ScopedTask, SessionData
@@ -170,6 +170,7 @@ def generate_compact_plan(session, path):
             return
         try:
             validate_compact(reply.design, brief, Path(session.project))
+            assign_stage_checks(reply.design)
             revision = Revision(
                 brief=brief,
                 plan=projection(reply.design),

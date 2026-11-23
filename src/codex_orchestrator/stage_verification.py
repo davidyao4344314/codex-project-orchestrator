@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from codex_orchestrator.design_validation import ancestors, task_graph
+from codex_orchestrator.design_validation import ancestors, stage_check_description, task_graph
 from codex_orchestrator.run_store import latest_runs, run_directory
 from codex_orchestrator.worker_audit import WorkspaceSnapshot, snapshot_workspace
 from codex_orchestrator.worker_models import artifact_digest
@@ -40,12 +40,16 @@ def check_stage_verification(state, path, stage_id, *, partial=False):
     # The durable after snapshot of each attempt must match the next observer's
     # before snapshot. Only an approved dependent writer may supersede it.
     expected = {}
+    observed_gate_checks = set()
     for run in sorted(attempts, key=lambda item: item.created_at):
         folder = run_directory(path) / run.id
         spec, after = verified_artifacts(run, folder)
         from codex_orchestrator.git_service import review_evidence
 
-        review_evidence(folder)
+        evidence = review_evidence(folder)
+        observed_gate_checks.update(
+            check.description for check in spec.checks if check.id in evidence.check_matches
+        )
         before = None
         if run.workspace_before_digest:
             before = WorkspaceSnapshot.load(folder / "workspace_before.json")
@@ -71,6 +75,13 @@ def check_stage_verification(state, path, stage_id, *, partial=False):
             expected[name] = (end, run.task_id)
 
     final = snapshot_workspace(Path(state.project), expected, run_directory(path))
+    if not partial:
+        stage = next(s for s in design.stages if s.id == stage_id)
+        for index, check in enumerate(stage.gate.agent_checks, 1):
+            description = stage_check_description(stage, index, check)
+            if any(description in task.automated_checks for task in tasks.values()):
+                if description not in observed_gate_checks:
+                    raise ValueError(f"Missing passing evidence for {description}")
     for name, (signature, task_id) in expected.items():
         if file_signature(final.files.get(name)) != signature:
             raise StageVerificationError(
