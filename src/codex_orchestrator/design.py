@@ -89,10 +89,9 @@ def approved_source(path: Path) -> PlanningSession:
     return source
 
 
-def check_source(state: DesignSession) -> PlanningSession:
-    source = approved_source(Path(state.source_file))
+def _matching_source(state: DesignSession, source: PlanningSession) -> PlanningSession:
     if (
-        source.approved_revision != state.source_revision
+        len(source.revisions) != state.source_revision
         or source_digest(source.revisions[-1]) != state.source_digest
         or str(Path(source.project).resolve()) != state.project
     ):
@@ -103,15 +102,49 @@ def check_source(state: DesignSession) -> PlanningSession:
     return source
 
 
+def check_source(state: DesignSession) -> PlanningSession:
+    """Delivery always requires explicitly approved requirements."""
+    return _matching_source(state, approved_source(Path(state.source_file)))
+
+
+def draft_source(path: Path) -> PlanningSession:
+    from codex_orchestrator.scope_outline import is_outline
+
+    source = PlanningSession.load(path)
+    if (
+        source.phase != "review"
+        or not source.revisions
+        or not is_outline(source.revisions[-1].plan, source.revisions[-1].brief)
+        or not Path(source.project).is_dir()
+    ):
+        raise CodexError("Combined planning requires a complete local scope outline.")
+    return source
+
+
+def planning_source(state: DesignSession) -> PlanningSession:
+    """A pending combined approval permits read-only design work, never delivery."""
+    if state.combined_approval and state.phase != "approved":
+        source = PlanningSession.load(Path(state.source_file))
+        if source.phase == "review":
+            return _matching_source(state, draft_source(Path(state.source_file)))
+    return check_source(state)
+
+
 def prepare_design(
     source_file: Path,
     output: Path | None,
     *,
     architect_model: str | None,
     agent_model: str | None,
+    combined_approval: bool = False,
 ) -> tuple[DesignSession, Path]:
     source_file = source_file.resolve()
-    source = approved_source(source_file)
+    source = PlanningSession.load(source_file)
+    source = (
+        draft_source(source_file)
+        if combined_approval and source.phase == "review"
+        else approved_source(source_file)
+    )
     output = (output or source_file.with_name(f"{source_file.stem}.design.json")).resolve()
     if output == source_file:
         raise CodexError("The design output must have a different path from the Stage 1 session.")
@@ -119,12 +152,16 @@ def prepare_design(
         state = DesignSession.load(output)
         if Path(state.source_file).resolve() != source_file:
             raise CodexError("This design belongs to a different Stage 1 session.")
-        check_source(state)
+        if combined_approval:
+            planning_source(state)
+        else:
+            check_source(state)
     else:
         state = DesignSession(
             source_file=str(source_file),
             project=str(Path(source.project).resolve()),
-            source_revision=source.approved_revision,
+            source_revision=len(source.revisions),
+            combined_approval=combined_approval and source.phase == "review",
             source=source.revisions[-1],
             source_digest=source_digest(source.revisions[-1]),
             architect_model=(
@@ -168,7 +205,7 @@ def normalize_model(value: str) -> str | None:
 def generate_design(state: DesignSession, output: Path, timeout: int) -> None:
     from codex_orchestrator.scope_outline import is_outline
 
-    source = check_source(state)
+    source = planning_source(state)
     local_outline = is_outline(state.source.plan, state.source.brief)
     data = {
         "project_name": source.project_name,
@@ -235,6 +272,11 @@ def _generate_design(state, output, timeout, data, turn):
                 "dependencies and checks. "
                 "Determine team size and difficulty independently."
             )
+    if state.combined_approval:
+        instructions += (
+            " The supplied brief is the proposed scope for joint human approval. "
+            "Do not treat either the requirements or this design as accepted yet."
+        )
     reply = codex_response(
         Path(state.project),
         planning_prompt(
@@ -253,7 +295,7 @@ def _generate_design(state, output, timeout, data, turn):
         turn=turn,
     )
     elapsed = monotonic() - started
-    check_source(state)
+    planning_source(state)
     actual_model = reported[-1] if reported else None
     if reply.design is None:
         state.pending_question = reply.question
@@ -311,7 +353,7 @@ def choose_design_models(state: DesignSession, output: Path, *, allocations: boo
         state.models_configured = True
         state.default_agent_model = selected["default agent"]
         state.auto_model_allocation = False
-        check_source(state)
+        planning_source(state)
         state.save(output)
 
 
@@ -321,7 +363,7 @@ def update_design_models(
     architect: str | None,
     allocations: dict[str, str | None],
 ) -> None:
-    check_source(state)
+    planning_source(state)
     current = state.revisions[-1]
     if set(allocations) != set(current.agent_models):
         raise ValueError("Choose a model for every assigned agent.")
@@ -346,7 +388,7 @@ def update_design_models(
 
 
 def approve_design(state: DesignSession, output: Path) -> None:
-    check_source(state)
+    source = planning_source(state)
     if state.phase != "review" or not state.revisions:
         raise ValueError("A complete design must be in review before approval.")
     current = state.revisions[-1].design
@@ -354,13 +396,20 @@ def approve_design(state: DesignSession, output: Path) -> None:
     if blockers:
         raise ValueError("Required context must be resolved before approval. " + " ".join(blockers))
     validate_design(current, state.source.brief, Path(state.project))
+    if source.phase == "review":
+        from codex_orchestrator.interactive import approve_plan
+
+        source.require_current(Path(state.source_file))
+        state.require_current(output)
+        approve_plan(source, Path(state.source_file))
+    check_source(state)
     state.phase = "approved"
     state.approved_revision = len(state.revisions)
     state.save(output)
 
 
 def revise_design(state: DesignSession, output: Path, feedback: str) -> None:
-    check_source(state)
+    planning_source(state)
     if state.phase not in ("review", "approved"):
         raise ValueError("Finish a draft before requesting a revision.")
     state.answers.append(Answer(prompt="Technical-design revision request", response=feedback))
@@ -370,7 +419,7 @@ def revise_design(state: DesignSession, output: Path, feedback: str) -> None:
 
 
 def submit_design_answer(state: DesignSession, output: Path, answer: str) -> None:
-    check_source(state)
+    planning_source(state)
     if not state.pending_question:
         raise ValueError("There is no architect question waiting for an answer.")
     state.answers.append(Answer(prompt=state.pending_question, response=answer))
@@ -388,10 +437,15 @@ def review_design(state: DesignSession, output: Path) -> bool:
     if state.phase == "review":
         choices = "approve / " + choices
     while True:
-        decision = ask(f"Review technical design [{choices}]")
+        label = (
+            "Review requirements and technical design"
+            if state.combined_approval
+            else "Review technical design"
+        )
+        decision = ask(f"{label} [{choices}]")
         if decision is None or decision.casefold() == "save":
             return False
-        check_source(state)
+        planning_source(state)
         if decision.casefold() in ("models", ":models"):
             choose_design_models(state, output, allocations=True)
             return True
@@ -428,7 +482,7 @@ def run_design(state: DesignSession, output: Path, timeout: int) -> None:
     needs_setup = True
     try:
         while True:
-            check_source(state)
+            planning_source(state)
             if state.phase != "draft":
                 if not review_design(state, output):
                     return

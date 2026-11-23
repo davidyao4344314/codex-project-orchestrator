@@ -24,16 +24,24 @@ def lines(label: str, items: list[str]) -> None:
 
 def show_design(state: DesignSession) -> None:
     typer.echo(f"\nTechnical design — {state.phase}")
-    typer.echo(f"Approved Stage 1 revision: {state.source_revision}")
+    combined_draft = state.combined_approval and state.phase != "approved"
+    prefix = "Proposed" if combined_draft else "Approved"
+    typer.echo(f"{prefix} Stage 1 revision: {state.source_revision}")
+    if combined_draft:
+        typer.echo(f"Goal: {state.source.brief.goal}")
+        lines("Intended users", state.source.brief.users)
+        lines("Project context", state.source.brief.project_context)
+        lines("Success criteria", state.source.brief.success_criteria)
+        lines("Requirements assumptions", state.source.brief.assumptions)
     lines(
-        "Approved requirements",
+        f"{prefix} requirements",
         [
             f"R{number}: {requirement}"
             for number, requirement in enumerate(state.source.brief.requirements, start=1)
         ],
     )
-    lines("Approved scope exclusions", state.source.brief.exclusions)
-    lines("Approved constraints", state.source.brief.constraints)
+    lines(f"{prefix} scope exclusions", state.source.brief.exclusions)
+    lines(f"{prefix} constraints", state.source.brief.constraints)
     if not state.revisions:
         typer.echo("The architect has not produced a complete design yet.")
         if state.pending_question:

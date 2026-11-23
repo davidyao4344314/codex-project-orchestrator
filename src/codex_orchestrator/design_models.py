@@ -186,6 +186,7 @@ class AgentPreference(SessionData):
 
 
 class DesignSession(SessionData):
+    combined_approval: bool = False
     context_limits: ContextLimits = Field(default_factory=ContextLimits)
     agent_roster: list[AgentPreference] = Field(default_factory=list)
     stage_reviews: list[StageReview] = Field(default_factory=list)
