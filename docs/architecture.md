@@ -182,6 +182,18 @@ implementation button from bypassing that boundary. The coordinator does not mer
 review services, rather than a side effect of dispatch or polling. Dispatch, retry, and resume are explicit; polling never starts
 inference. Existing file checkpoints still target one local user, not concurrent server writers.
 
+The explicit terminal `cycle feature` flow advances the same coordinator through ready tasks
+and verifies only structured completed attempts with current file hashes and matching
+observed checks. It records the verification source separately; required task-level human
+checks are presented at feature acceptance. Read-only prerequisites with human checks
+still require manual verification. Failures stop the loop and retries require explicit
+operator action. The terminal displays the feature's files, test results and combined gate
+before collecting actual user evidence. Independent review and the existing reviewed-content
+fingerprint bind the final publication. One publication confirmation authorizes the reviewed
+commit and, if configured, its stage-branch push. A local-only receipt cannot authorize a
+remote push. Integration merges remain explicit and recorded, with a local-only merge
+requiring a recorded user approval.
+
 ## Context builder boundary
 
 `assignment_context` selects approved requirement/contract metadata. `context_builder` resolves

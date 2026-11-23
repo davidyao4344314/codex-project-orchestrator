@@ -335,6 +335,24 @@ and make an initial clean base commit. Use the default design output path.
 Run `orchestrator cycle deliver --help` for terminal stage controls. With an approved
 technical design, use these in order (replace SESSION and STAGE with actual values):
 
+For the streamlined terminal workflow, use:
+
+```sh
+orchestrator cycle feature SESSION --stage STAGE --base main
+```
+
+The feature command prepares stage branches from the approved design, advances ready tasks
+through their structured automated evidence, and displays the combined user testing checklist.
+It stops on failures and external read-only prerequisites needing human confirmation. Enter
+actual test evidence, `:improve` for scoped feedback, or `:save` to pause. After independent
+AI review passes, confirm publication once. With no origin, the command creates a local
+commit. A configured remote is displayed before approval and only the approved branch is
+pushed. Existing committed work can be resumed without launching another worker or reviewer.
+Merge the reviewed stage into the integration base and record the merge before proceeding.
+The manual commands below remain available for diagnostics and recovery.
+
+For the manual workflow:
+
 ```sh
 orchestrator cycle deliver SESSION enable --base main
 orchestrator cycle deliver SESSION approve --stage STAGE

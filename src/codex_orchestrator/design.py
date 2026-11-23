@@ -67,6 +67,8 @@ ARCHITECT_INSTRUCTIONS = (
     "Keep stage and task dependencies acyclic. Order tasks that write the same file. "
     "Split large assignments into independently testable tasks when practical. "
     "Prefer focused task checks and reserve full regression runs for stage verification. "
+    "Assign combined stage regression checks to the final task's automated checks so the "
+    "terminal feature workflow has observed results before presenting user tests. "
     "Do not require unrelated code changes merely to pass a task's focused checks. "
     "Handoff recipients and gate owners are agent IDs or user; failure owners must be agents. "
     "Designate owners for shared interfaces. Explain actual opportunities for parallelism. "

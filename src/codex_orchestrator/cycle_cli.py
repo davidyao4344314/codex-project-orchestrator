@@ -34,6 +34,22 @@ def fail(exc):
     raise typer.Exit(1) from exc
 
 
+@app.command()
+def feature(
+    source: Path,
+    stage: str = typer.Option(..., help="Approved delivery stage ID"),
+    base: str = "main",
+    retry: bool = typer.Option(False, help="Explicitly retry one blocked task"),
+):
+    """Deliver an approved feature with one user testing and publication checkpoint."""
+    from codex_orchestrator.feature_delivery import deliver_feature
+
+    try:
+        deliver_feature(source.resolve(), stage, base, retry=retry)
+    except (OSError, ValueError, CodexError) as exc:
+        fail(exc)
+
+
 @app.command("new")
 def new(
     project: Path,
@@ -522,11 +538,14 @@ def deliver(
             typer.echo(reviewer.result.model_dump_json(indent=2))
             typer.echo(preview.diff)
             if typer.confirm("Create a local commit for these reviewed changes?"):
+                approval = git_service.approve_user(path, preview)
                 typer.echo(
-                    git_service.commit(path, preview, message, approval_id=reviewer.id).commit
+                    git_service.commit(path, preview, message, approval_id=approval.id).commit
                 )
         elif action == DeliveryAction.push:
             record = git_service.GitPublication.load(git_service.publication_path(path))
+            if not record.remote:
+                raise ValueError("This is a local-only commit. No push destination is configured.")
             git_service.validate_publication(path, record)
             typer.echo(f"Commit: {record.commit}\nBranch: {record.branch}\nRemote: {record.remote}")
             if typer.confirm("Give permission to push this commit and its branch history?"):
