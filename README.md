@@ -293,9 +293,33 @@ completion timestamps, delivered changes, feedback and verified stage commit SHA
 The existing planning, stage execution, review and Git gates are reused. No browser UI
 changes are included in this version.
 
+### GitHub connection (initial setup)
+
+Before asking for a new project's goal, `cycle new` checks its local Git repository,
+origin, branch, GitHub CLI sign-in and read access to the GitHub repository. If
+GitHub is disconnected, you can connect an existing repository or continue locally.
+Use a credential-free GitHub HTTPS or SSH remote URL. If the folder has no Git
+repository, accepting connection setup initializes it on `main`.
+
+```sh
+orchestrator cycle github /path/to/project --status-only
+orchestrator cycle github /path/to/project
+orchestrator cycle new /path/to/project
+```
+
+Install [GitHub CLI](https://cli.github.com/) if needed. If sign-in is required, the
+interactive setup offers to open GitHub's own authorization flow. Follow the
+instructions in the terminal to complete sign-in. The orchestrator does not store
+authentication tokens or include them in planning sessions. Existing origin
+configuration is preserved. For local-only projects, use `cycle new PROJECT --local`.
+GitHub read access does not establish push permission. Create the initial local
+commit and configure your Git credentials before delivery; pull requests and
+merging remain separate from connection setup.
+
 ```mermaid
 flowchart TD
-    Idea[New cycle: ask for goal] --> Plan[Clarify requirements and draft technical design]
+    Connect[Initial GitHub connection check] --> Idea[New cycle: ask for goal]
+    Idea --> Plan[Clarify requirements and draft technical design]
     Plan --> Approval[User approves combined plan]
     Approval --> Stage[Prepare stage branch and implement]
     Stage --> Automated[Run automated task and combined stage checks]

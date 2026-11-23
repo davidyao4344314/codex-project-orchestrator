@@ -24,6 +24,7 @@ later integrations.
 | Execution adapter | `execution` | Start/stop Codex, project writer lock, timeout, prerequisites, verification |
 | Run storage | `run_store` | Validated snapshots, bounded cache and log previews, latest-attempt lookup |
 | Terminal interface | `cli`, `design_display` | Arguments, prompts and terminal presentation |
+| GitHub connection | `github_connection`, `github_cli` | Local Git origin inspection, gh authentication/access check, explicit setup |
 | Web interface | `web`, `workflow_view`, `dashboard`, `run_view`, `allocation_view`, `web_widgets` | Navigation, forms, workflow rendering, live run display |
 | Browser interactions | `selection`, `task_board` | Small JavaScript components for highlighting and drag/drop |
 
