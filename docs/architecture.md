@@ -25,6 +25,7 @@ later integrations.
 | Run storage | `run_store` | Validated snapshots, bounded cache and log previews, latest-attempt lookup |
 | Terminal interface | `cli`, `design_display` | Arguments, prompts and terminal presentation |
 | GitHub connection | `github_connection`, `github_cli` | Local Git origin inspection, gh authentication/access check, explicit setup |
+| GitHub PR delivery | `github_api`, `github_pr`, `pr_description`, `github_pr_cli` | Approved PR creation, CI checks, exact-head merge and recovery |
 | Branch allocation | `branch_allocation`, `agent_worktrees`, `stage_branches` | Graph-derived agent isolation, audited local integration and stage merge ancestry |
 | Web interface | `web`, `workflow_view`, `dashboard`, `run_view`, `allocation_view`, `web_widgets` | Navigation, forms, workflow rendering, live run display |
 | Browser interactions | `selection`, `task_board` | Small JavaScript components for highlighting and drag/drop |
@@ -87,9 +88,8 @@ and stale final outputs require re-verification.
   need manual acceptance. Automated subprocess tests use local fake Codex programs.
 - The documented installation is an editable repository checkout. A distributable wheel still
   needs packaging work for sample assets and a user-writable session directory.
-- Detailed workflow analysis, tool-call metrics, controlled comparative evaluation and
-  automatic review/merge gates remain future increments; managed turns now record token/timing
-  observations.
+- Detailed workflow analysis and controlled comparative evaluation remain future increments.
+  Managed turns record token, tool and timing observations; GitHub PR merges are explicit.
 
 ## How to extend it
 
@@ -130,6 +130,30 @@ retry runs the affected task on the shared stage with rebuilt context; unrelated
 accepted tasks are retained. Worktrees and draft branches remain available locally.
 Execution is serialized in this version, with audited isolation as the foundation for
 later parallel scheduling.
+
+## GitHub PR delivery
+
+PR creation is bound to the current pushed stage publication receipt, independent
+review and user approval. The GitHub origin fetch and push destinations must identify
+the same repository. The published stage must contain exactly the reviewed commit
+and its approved paths against the recorded stage base. Local PR checkpoints are
+revision- and stage-bound; creation discovers a matching existing PR before making
+a new one. The generated description is previewed and must match the text approved
+for publication. It reuses existing test records and requires no additional inference.
+
+The merge operation reads remote PR identity, head and base hashes, draft status,
+review decision, reported checks and GitHub merge state. The terminal obtains
+permission for the exact repository, PR number, base and approved head. The service
+rechecks all conditions before the GitHub REST merge request with the head SHA
+guard. It requests merge-commit semantics to preserve reviewed ancestry and relies
+on GitHub's branch rules for server-side enforcement. A changed base blocks a new
+merge request; the REST operation pins the head SHA rather than providing an atomic
+base-hash precondition.
+
+The merge SHA is checkpointed before local synchronization. A retry observes a
+server-confirmed merge and resumes fast-forward fetch/merge and existing stage
+acceptance checks. Cycle history records the PR number, base, approved head and
+merge SHA. Local and non-GitHub Git delivery remains available.
 
 ## Compact planning and model allocation
 

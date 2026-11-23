@@ -358,6 +358,49 @@ their files isolated for inspection. A retry runs only the affected assignment o
 shared stage. Worktrees remain under `.orchestrator-worktrees` beside the target
 project for inspection.
 
+### GitHub pull request delivery
+
+For a cycle that delivers directly to `main`, start from a clean local main checkout.
+Use `--base main` when delivering its first feature. After the automated checks,
+manual testing and AI review, the terminal shows the generated PR title and body
+before asking to commit, push the feature branch and create the PR.
+
+```sh
+orchestrator cycle feature SESSION --stage STAGE --base main
+orchestrator cycle pr SESSION status --stage STAGE
+orchestrator cycle pr SESSION merge --stage STAGE
+```
+
+Replace SESSION and STAGE with the saved session path and actual approved stage ID.
+The PR description reuses the approved requirements, task descriptions, reviewed
+paths and observed test outcomes. It contains the user test note, and it does not
+require a separate model call. Review the preview before publishing it to GitHub.
+
+The status command reads GitHub CI and review results. Merge requires the exact
+reviewed and pushed head, an unchanged integration base, passing reported checks,
+and a mergeable GitHub state. If no CI checks are configured, status explicitly
+reports that fact. Pending, failed, conflicting or unknown checks block merge.
+The merge command asks for explicit permission and rechecks the remote state.
+It requests a merge commit and pins the approved head SHA; GitHub's own branch
+rules still apply. No admin override, automatic merge queue, squash or rebase is
+requested.
+
+After GitHub confirms the merge, the orchestrator fast-forwards the local base,
+checks merge ancestry, records the stage acceptance and saves the PR number and
+merge SHA in cycle history. If the network fails after a push or merge, resume with:
+
+```sh
+orchestrator cycle pr SESSION create --stage STAGE
+orchestrator cycle pr SESSION status --stage STAGE
+orchestrator cycle pr SESSION merge --stage STAGE
+```
+
+Creation finds an existing matching PR. Merge resumes local synchronization when
+GitHub already reports the PR merged. If the integration base changes before
+merge, a new reviewed delivery against the refreshed base is needed. For a larger
+project using `--base develop`, stage PRs target develop; promotion of the integrated
+develop branch to main is a separate release review and merge.
+
 ```mermaid
 flowchart TD
     Connect[Initial GitHub connection check] --> Idea[New cycle: ask for goal]
@@ -378,7 +421,11 @@ flowchart TD
     Permission -->|Yes| Commit[Commit and push if origin configured]
     Permission -->|Not yet| PauseReview[Save accepted work and review]
     PauseReview --> Permission
-    Commit --> Merge[Manually merge and record merge]
+    Commit --> Hosted{GitHub remote?}
+    Hosted -->|Yes| PR[Create PR and inspect CI]
+    PR --> MergeApproval[User approves PR merge]
+    MergeApproval --> Merge[Merge, synchronize and record]
+    Hosted -->|No| Merge
     Merge --> More{More stages?}
     More -->|Yes| Stage
     More -->|No| Feedback[Finish cycle with recorded goal acceptance]
@@ -441,7 +488,9 @@ orchestrator cycle feature SESSION --stage STAGE --retry-review
 ```
 
 This option requires accepted feature testing and does not dispatch implementation work.
-Merge the reviewed stage into the integration base and record the merge before proceeding.
+For GitHub remotes, follow the PR status and merge commands above. For local-only
+or other Git hosts, merge the reviewed stage into the integration base and record
+the merge before proceeding.
 The manual commands below remain available for diagnostics and recovery.
 
 For the manual workflow:
