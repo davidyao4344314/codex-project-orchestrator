@@ -38,6 +38,16 @@ class ArchivedDelivery(SessionData):
     merged_stages: dict[str, str]
 
 
+class PullRequestDelivery(SessionData):
+    session_name: str
+    stage_id: str
+    repository: str
+    number: int = Field(gt=0)
+    base: str
+    commit: str
+    merge_commit: str
+
+
 class Cycle(SessionData):
     number: int = Field(ge=1)
     session_name: str
@@ -49,6 +59,7 @@ class Cycle(SessionData):
     changes: str = ""
     feedback: str = ""
     commits: list[str] = Field(default_factory=list)
+    pull_requests: list[PullRequestDelivery] = Field(default_factory=list)
     feedback_enabled: bool = False
     feedback_rounds: list[FeedbackRound] = Field(default_factory=list)
     archived_deliveries: list[ArchivedDelivery] = Field(default_factory=list)

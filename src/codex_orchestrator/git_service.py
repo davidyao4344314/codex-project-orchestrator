@@ -371,6 +371,20 @@ def _push(path: Path, permission: PushPermission | None = None) -> GitPublicatio
             "User permission is required for this exact commit, branch and remote before push."
         )
     validate_publication(path, record)
+    from codex_orchestrator import github_pr, stage_branches
+
+    if github_pr.repository_for(record.remote) and stage_branches.load(path) is not None:
+        approval = reviews.require_approval(
+            path, record.approval_id, record.reviewed_fingerprint or ""
+        )
+        if approval.source != "user":
+            raise ValueError("GitHub stage publication requires recorded user approval.")
+        github_pr.validate_origin(project, record.remote)
+        state = DesignSession.load(path)
+        _, revision = stage_branches.current(state, path)
+        github_pr.validate_stage_commit(
+            project, record, revision.stages[record.stage_id].start_commit
+        )
     git(
         project,
         "-c",
