@@ -17,9 +17,10 @@ def test_new_cycle_prompts_and_history_is_read_only(tmp_path):
     result = runner.invoke(
         app,
         ["cycle", "new", str(project), "--directory", str(directory)],
-        input="Create a counter\n",
+        input="n\nCreate a counter\n",
     )
     assert result.exit_code == 0, result.output
+    assert "GitHub is not connected" in result.output
     file, history = histories(directory)[0]
     source = directory / history.cycles[0].session_name
     assert PlanningSession.load(source).phase == "intake"

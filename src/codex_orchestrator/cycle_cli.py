@@ -85,14 +85,30 @@ def new(
     goal: str | None = None,
     directory: Path = Path("plans"),
     route: PlanningRoute = PlanningRoute.AUTO,
+    local: bool = typer.Option(False, "--local", help="Skip GitHub connection setup"),
 ):
     """Create a project history and its first cycle without calling a model."""
     try:
         project = project.resolve()
+        if not local:
+            from codex_orchestrator.github_cli import show_connection
+
+            show_connection(project)
         goal = goal if goal is not None else typer.prompt("What would you like to build?")
         path = cycle_manager.create_project(project, goal, directory.resolve(), route=route)
         typer.echo(f"Cycle 001 session: {path}")
         typer.echo(f"Continue with: orchestrator cycle plan '{path}'")
+    except (OSError, ValueError, CodexError) as exc:
+        fail(exc)
+
+
+@app.command("github")
+def github(project: Path, status_only: bool = typer.Option(False, "--status-only")):
+    """Check GitHub connection or connect an existing remote before planning."""
+    from codex_orchestrator.github_cli import show_connection
+
+    try:
+        show_connection(project.resolve(), offer=not status_only)
     except (OSError, ValueError, CodexError) as exc:
         fail(exc)
 
