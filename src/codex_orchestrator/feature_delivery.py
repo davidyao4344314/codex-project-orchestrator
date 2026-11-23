@@ -38,6 +38,9 @@ def advance_tasks(path, stage_id, project, *, retry=False):
             run = coordinator.run_next(path, stage_id, retry=retrying)
             retry = False
             typer.echo(f"Running {run.task_id}; evidence: {run_directory(path) / run.id}")
+            if run.agent_branch:
+                typer.echo(f"  Agent branch: {run.agent_branch}")
+                typer.echo(f"  Agent workspace: {run.agent_worktree}")
             try:
                 while execution.is_busy(project):
                     time.sleep(0.5)
@@ -46,6 +49,8 @@ def advance_tasks(path, stage_id, project, *, retry=False):
                 raise
             finished = Run.load(run_directory(path) / run.id / "run.json")
             typer.echo(f"{finished.task_id}: {finished.status}")
+            if finished.agent_commit:
+                typer.echo("  Audited agent changes integrated into the stage branch.")
             if finished.status != "completed":
                 raise ValueError(
                     f"Task {finished.task_id} stopped: {finished.error or finished.status}"
@@ -63,6 +68,10 @@ def feature_tests(state, path, stage, schedule):
         typer.echo(f"{task.id}: {item.status} — {task.title}")
         typer.echo("Files: " + ", ".join(task.owned_paths))
         folder = run_directory(path) / item.run_id
+        run = Run.load(folder / "run.json")
+        if run.agent_branch:
+            typer.echo(f"  Agent branch: {run.agent_branch}")
+            typer.echo(f"  Integrated draft: {run.agent_commit or 'not integrated'}")
         report_path = folder / "worker_result.json"
         human_checks = list(task.human_checks)
         if report_path.exists():
@@ -88,7 +97,7 @@ def feature_tests(state, path, stage, schedule):
 
 
 def deliver_feature(
-    source: Path, stage_id: str, base: str, *, retry=False, retry_review=False
+    source: Path, stage_id: str, base: str | None, *, retry=False, retry_review=False
 ) -> None:
     cycle_manager.require_active(source)
     path = source.with_suffix(".design.json")
@@ -105,8 +114,10 @@ def deliver_feature(
     if retry_review and coordinator.stage_schedule(path, stage_id).status != "accepted":
         raise ValueError("Complete feature testing before retrying independent review.")
     if stage_branches.load(path) is None:
-        stage_branches.enable(path, base)
+        stage_branches.enable(path, base or stage_branches.default_base(project))
     settings, revision = stage_branches.current(state, path)
+    if base and base != settings.base:
+        raise ValueError(f"This cycle uses integration base {settings.base}.")
     item = revision.stages.get(stage_id)
     if item and item.merged_commit:
         typer.echo("Feature already merged.")

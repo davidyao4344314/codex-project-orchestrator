@@ -66,7 +66,7 @@ def combined_plan(source: Path, timeout: int = typer.Option(300, min=1)):
 def feature(
     source: Path,
     stage: str = typer.Option(..., help="Approved delivery stage ID"),
-    base: str = "main",
+    base: str | None = typer.Option(None, help="Integration base (defaults to checked-out branch)"),
     retry: bool = typer.Option(False, help="Explicitly retry one blocked task"),
     retry_review: bool = typer.Option(False, help="Explicitly retry independent review"),
 ):
@@ -180,7 +180,11 @@ def status(source: Path):
                         None,
                     )
                     if ready:
-                        base = settings.base if settings else "main"
+                        base = (
+                            settings.base
+                            if settings
+                            else stage_branches.default_base(Path(state.project))
+                        )
                         typer.echo(
                             f"Continue feature: orchestrator cycle feature '{current}' "
                             f"--stage {ready.id} --base {base}"

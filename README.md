@@ -316,6 +316,48 @@ GitHub read access does not establish push permission. Create the initial local
 commit and configure your Git credentials before delivery; pull requests and
 merging remain separate from connection setup.
 
+### Adaptive branch management
+
+The technical design displays the workspace strategy for each task. Independent
+writers with distinct agents and disjoint declared file inputs and outputs are
+eligible for private local agent branches and worktrees. Small stages, dependent
+tasks, shared-file tasks and combined verification use the feature's shared stage
+branch. Worktree dispatch is currently serialized.
+
+```mermaid
+flowchart TD
+    Base[Local integration base] --> Stage[Feature stage branch]
+    Stage --> Split{Independent compatible writers?}
+    Split -->|Yes| A[Agent branch and worktree A]
+    Split -->|Yes| B[Agent branch and worktree B]
+    Split -->|No| Shared[Shared stage implementation]
+    A -->|Audited local patch| Integrated[Combined stage tree]
+    B -->|Audited local patch| Integrated
+    Shared --> Integrated
+    Integrated --> Checks[Combined checks and user testing]
+    Checks --> Review[Independent review]
+    Review --> Permission[User approves publication]
+    Permission --> Push[Commit and optional push of stage branch]
+```
+
+Use a clean `develop` checkout as the integration base if your project has one:
+
+```sh
+git -C /path/to/project switch develop
+orchestrator cycle feature SESSION --stage STAGE --base develop
+```
+
+Omitting `--base` defaults to the checked-out branch when the cycle first enables stage
+branches. Use `--base main` for a simple repository. The selected base is preserved
+throughout that delivery. The orchestrator does not automatically merge into it.
+
+Successful isolated workers create a local draft commit and apply their audited
+changes to the uncommitted stage. Agent branches are never pushed by the workflow.
+The terminal prints each agent branch and worktree location; failed attempts leave
+their files isolated for inspection. A retry runs only the affected assignment on the
+shared stage. Worktrees remain under `.orchestrator-worktrees` beside the target
+project for inspection.
+
 ```mermaid
 flowchart TD
     Connect[Initial GitHub connection check] --> Idea[New cycle: ask for goal]

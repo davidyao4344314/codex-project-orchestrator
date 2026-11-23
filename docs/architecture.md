@@ -25,6 +25,7 @@ later integrations.
 | Run storage | `run_store` | Validated snapshots, bounded cache and log previews, latest-attempt lookup |
 | Terminal interface | `cli`, `design_display` | Arguments, prompts and terminal presentation |
 | GitHub connection | `github_connection`, `github_cli` | Local Git origin inspection, gh authentication/access check, explicit setup |
+| Branch allocation | `branch_allocation`, `agent_worktrees`, `stage_branches` | Graph-derived agent isolation, audited local integration and stage merge ancestry |
 | Web interface | `web`, `workflow_view`, `dashboard`, `run_view`, `allocation_view`, `web_widgets` | Navigation, forms, workflow rendering, live run display |
 | Browser interactions | `selection`, `task_board` | Small JavaScript components for highlighting and drag/drop |
 
@@ -75,8 +76,9 @@ and stale final outputs require re-verification.
 
 - Execution is a single-writer local prototype. Owned paths and prohibitions on commits or
   deployments are prompt instructions inside the project sandbox, not per-file enforcement.
-- Parallel execution needs isolated worktrees, a durable supervisor, and explicit integration
-  gates. Do not add simultaneous writers to the existing project folder.
+- Agent worktrees now isolate independent writers. Parallel execution still needs a
+  durable multi-worker supervisor and coordinated integration gates. Dispatch remains
+  serialized by the project lease.
 - Hard crashes can leave a lock behind. Structured worker leases support explicit, process-checked
   recovery; legacy/ambiguous and Git/review locks still need manual inspection. Never release by age.
 - File checkpoints and optimistic checks suit a local single-user tool. Multi-user or multiple
@@ -101,6 +103,33 @@ and stale final outputs require re-verification.
 Install the complete development environment with `python -m pip install -e '.[dev,web]'`.
 Run `python -m pytest -q`, `ruff check src tests examples`, and `ruff format --check src tests examples`.
 Web tests intentionally skip without the web extra, so install it when changing the interface.
+
+## Adaptive Git branch allocation
+
+Stage delivery uses a revision-bound feature branch starting from the selected local
+integration base. The terminal defaults to the checked-out base when enabling a new
+cycle's stage branches; an established cycle retains its recorded base.
+
+For each approved stage, the allocator identifies independent tasks owned by different
+agents with disjoint declared inputs and outputs. Combined stage checks, dependent
+writers and read-only verification use the shared stage worktree. A first eligible
+attempt with compatible tracked inputs gets an individual local agent branch and a
+worktree under the project's sibling `.orchestrator-worktrees` directory. If the task
+needs uncommitted stage inputs, it uses the shared stage instead.
+
+The worker must pass its structured checks and workspace ownership audit before the
+orchestrator creates a local draft commit on its agent branch. Integration checks the
+stage HEAD, clean index, original input hashes, changed-file set and draft output
+hashes, then applies the audited patch to the uncommitted stage tree. Final stage
+checks observe the combined files. The stage still requires independent AI review and
+explicit user approval before its publication commit or push. Agent branches are local
+working history and never pushed by this workflow.
+
+Failed or interrupted isolated attempts retain their worktree for inspection. Explicit
+retry runs the affected task on the shared stage with rebuilt context; unrelated
+accepted tasks are retained. Worktrees and draft branches remain available locally.
+Execution is serialized in this version, with audited isolation as the foundation for
+later parallel scheduling.
 
 ## Compact planning and model allocation
 
