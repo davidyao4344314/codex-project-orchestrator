@@ -5,6 +5,7 @@ from pathlib import Path
 
 import typer
 
+from codex_orchestrator.branch_allocation import isolated_tasks
 from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.design_validation import (
     context_blockers,
@@ -116,6 +117,7 @@ def show_design(state: DesignSession) -> None:
         typer.echo(f"\nStage dependency group {wave}: {', '.join(ready)}")
         for stage_id in ready:
             stage = by_stage[stage_id]
+            isolated = isolated_tasks(design, stage_id)
             typer.echo(f"\nStage {stage.id} — {stage.title}")
             typer.echo(f"  Goal: {stage.goal}")
             if stage.depends_on:
@@ -126,6 +128,10 @@ def show_design(state: DesignSession) -> None:
                 if task.stage_id != stage.id:
                     continue
                 typer.echo(f"\n  Task {task.id} — {task.title} [agent {task.agent_id}]")
+                typer.echo(
+                    "    Git workspace: "
+                    + ("isolated agent branch" if task.id in isolated else "shared stage branch")
+                )
                 typer.echo(f"    {task.description}")
                 typer.echo(
                     f"    Selected task model: {revision.model_for_task(task) or 'Codex default'}"
