@@ -36,6 +36,7 @@ class Run(SessionData):
     reused_context_files: int = 0
     error: str | None = None
     verified: bool = False
+    verification_source: Literal["human", "automated"] | None = None
     worker_contract_version: Literal[1] | None = None
     worker_profile: str | None = None
     worker_result_digest: str | None = None

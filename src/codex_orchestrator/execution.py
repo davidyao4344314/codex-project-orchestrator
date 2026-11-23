@@ -420,7 +420,7 @@ def stop_run(run):
         stop.set()
 
 
-def verify_run(path, run_id):
+def verify_run(path, run_id, *, automated=False):
     folder = run_directory(path) / run_id
     run = Run.load(folder / "run.json")
     if run.status != "completed":
@@ -440,7 +440,27 @@ def verify_run(path, run_id):
         raise ValueError("Wait for the active project run to stop before accepting verification.")
     if run.worker_contract_version == 1:
         check_worker_verification(run, Path(state.project), folder)
+    if automated:
+        from codex_orchestrator.git_service import review_evidence
+        from codex_orchestrator.worker_models import WorkerResult, WorkerSpec
+        from codex_orchestrator.worker_results import reconcile_result
+
+        if run.worker_contract_version != 1:
+            raise ValueError("A legacy run requires manual verification.")
+        spec = WorkerSpec.load(folder / "worker_spec.json")
+        report = WorkerResult.load(folder / "worker_result.json")
+        evidence = review_evidence(folder)
+        # Read-only tasks can represent an external prerequisite requiring real human input.
+        if spec.read_only and spec.human_checks:
+            raise ValueError("This read-only prerequisite needs its required human checks.")
+        matches = dict(evidence.check_matches)
+        if (
+            reconcile_result(spec, report, evidence) != "completed"
+            or matches != evidence.check_matches
+        ):
+            raise ValueError("Worker evidence does not establish all required checks.")
     run.verified = True
+    run.verification_source = "automated" if automated else "human"
     run.save(folder / "run.json")
 
 
