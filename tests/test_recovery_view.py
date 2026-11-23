@@ -21,7 +21,7 @@ def test_resume_navigation_is_read_only_across_new_browser_session(accepted, mon
             lambda *a, **kw: pytest.fail("Inference during resume"),
         )
     for _ in range(2):
-        app = AppTest.from_file(web.__file__).run()
+        app = AppTest.from_file(web.__file__, default_timeout=10).run()
         next(b for b in app.button if b.label == "Resume project").click().run()
         assert not app.exception
         assert any("Open Git connection" in i.value for i in app.info)

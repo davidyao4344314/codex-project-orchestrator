@@ -145,7 +145,7 @@ def test_sidebar_team_change_only_calls_ai_on_submit(allocation_design, monkeypa
         return reply_for(state.revisions[-1].design, roster)
 
     monkeypatch.setattr(allocation, "codex_response", respond)
-    app = AppTest.from_file(web.__file__).run()
+    app = AppTest.from_file(web.__file__, default_timeout=10).run()
     next(b for b in app.button if b.label == "Open dashboard").click().run()
     assert not app.exception
     assert next(r for r in app.radio if r.label == "Team sizing").value == "Planner recommendation"

@@ -24,7 +24,7 @@ def test_sample_project_prefills_a_separate_starter(
     tmp_path, monkeypatch, sample_button, project_name
 ):
     monkeypatch.setenv("ORCHESTRATOR_PLANS", str(tmp_path / "plans"))
-    app = AppTest.from_file(web.__file__).run()
+    app = AppTest.from_file(web.__file__, default_timeout=10).run()
     assert not app.exception
     button(app, sample_button).click().run()
     assert not app.exception

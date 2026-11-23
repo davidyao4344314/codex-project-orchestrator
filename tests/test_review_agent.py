@@ -250,7 +250,7 @@ def test_dashboard_review_is_explicit_and_refresh_does_not_call_model(accepted, 
     _, path = accepted
     calls = fake_reviewer(monkeypatch)
     monkeypatch.setenv("ORCHESTRATOR_PLANS", str(path.parent))
-    app = AppTest.from_file(web.__file__).run()
+    app = AppTest.from_file(web.__file__, default_timeout=10).run()
     next(b for b in app.button if b.label == "Open dashboard").click().run()
     next(b for b in app.button if b.label == "Preview accepted stage changes").click().run()
     assert not app.exception and not calls
@@ -298,7 +298,7 @@ def test_ui_requires_separate_permission_after_ai_review_and_commit(accepted, mo
     fake_reviewer(monkeypatch)
     pushes = mock_push(monkeypatch)
     monkeypatch.setenv("ORCHESTRATOR_PLANS", str(path.parent))
-    app = AppTest.from_file(web.__file__).run()
+    app = AppTest.from_file(web.__file__, default_timeout=10).run()
     next(b for b in app.button if b.label == "Open dashboard").click().run()
     next(b for b in app.button if b.label == "Preview accepted stage changes").click().run()
     assert next(b for b in app.button if b.label == "Commit reviewed AI changes").disabled

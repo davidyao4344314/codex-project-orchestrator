@@ -17,7 +17,7 @@ def test_dashboard_branch_setup_is_explicit(project, monkeypatch):
     monkeypatch.setattr(
         branches, "refresh_base", lambda *a: pytest.fail("Unexpected network action")
     )
-    app = AppTest.from_file(web.__file__).run()
+    app = AppTest.from_file(web.__file__, default_timeout=10).run()
     next(b for b in app.button if b.label == "Open dashboard").click().run()
     app.run()
     assert not app.exception

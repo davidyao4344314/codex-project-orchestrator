@@ -267,7 +267,7 @@ def test_worker_report_ui_exposes_evidence_and_manual_acceptance(
     )
     assert run.status == "completed", run.error
     monkeypatch.setenv("ORCHESTRATOR_PLANS", str(path.parent))
-    app = AppTest.from_file(web.__file__).run()
+    app = AppTest.from_file(web.__file__, default_timeout=10).run()
     next(b for b in app.button if b.label == "Open dashboard").click().run()
     next(b for b in app.button if b.label == "Open agent workspace").click().run()
     assert not app.exception

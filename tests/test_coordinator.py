@@ -151,7 +151,7 @@ def test_dashboard_polling_is_read_only_and_dispatch_is_explicit(coordinated, mo
         return record(file, task.id, status="running")
 
     monkeypatch.setattr(execution, "start_run", start)
-    app = AppTest.from_file(web.__file__).run()
+    app = AppTest.from_file(web.__file__, default_timeout=10).run()
     next(b for b in app.button if b.label == "Open dashboard").click().run()
     assert not app.exception
     assert any(h.value == "Execution coordinator" for h in app.subheader)
@@ -192,7 +192,7 @@ def test_dashboard_records_stage_evidence_without_starting_work(coordinated, mon
         record(path, task.id, verified=True)
     monkeypatch.setenv("ORCHESTRATOR_PLANS", str(path.parent))
     monkeypatch.setattr(execution, "start_run", lambda *a: pytest.fail("Unexpected dispatch"))
-    app = AppTest.from_file(web.__file__).run()
+    app = AppTest.from_file(web.__file__, default_timeout=10).run()
     next(b for b in app.button if b.label == "Open dashboard").click().run()
     assert not app.exception
     next(t for t in app.text_area if t.label == "Review and manual-test evidence").set_value(

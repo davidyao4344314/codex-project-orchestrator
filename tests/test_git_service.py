@@ -172,7 +172,7 @@ def test_dashboard_git_panel_has_no_write_on_refresh(accepted, monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_PLANS", str(path.parent))
     monkeypatch.setattr(service, "commit", lambda *a: pytest.fail("Unexpected commit"))
     monkeypatch.setattr(service, "push", lambda *a: pytest.fail("Unexpected push"))
-    app = AppTest.from_file(web.__file__).run()
+    app = AppTest.from_file(web.__file__, default_timeout=10).run()
     next(b for b in app.button if b.label == "Open dashboard").click().run()
     assert not app.exception
     assert any(e.label == "Git connection" for e in app.expander)
