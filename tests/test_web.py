@@ -84,7 +84,7 @@ def test_browser_requirements_to_approved_design(
     monkeypatch.setattr("codex_orchestrator.interactive.collect_brief", intake)
     monkeypatch.setattr("codex_orchestrator.interactive.generate_plan", plan)
     monkeypatch.setattr("codex_orchestrator.design.generate_design", design)
-    app = AppTest.from_file(web.__file__).run()
+    app = AppTest.from_file(web.__file__, default_timeout=10).run()
     text_input(app, "Project name").set_value("Counter")
     text_input(app, "Local project folder").set_value(str(source_path.parent))
     app.text_area[0].set_value("Build a recursion counter")

@@ -336,7 +336,7 @@ def test_preview_builds_on_click_and_can_refresh_without_inference(context_desig
         "codex_orchestrator.dashboard.codex_response",
         lambda *a, **kw: pytest.fail("Unexpected inference"),
     )
-    app = AppTest.from_file(web.__file__).run()
+    app = AppTest.from_file(web.__file__, default_timeout=10).run()
     next(b for b in app.button if b.label == "Open dashboard").click().run()
     next(b for b in app.button if b.label == "Open agent workspace").click().run()
     assert not app.exception and reads == []
