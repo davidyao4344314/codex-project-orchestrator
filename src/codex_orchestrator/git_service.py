@@ -199,9 +199,9 @@ def _preview(path: Path, stage_id: str, selected: list[str] | None = None) -> Gi
     branch = git(project, "symbolic-ref", "--quiet", "--short", "HEAD", optional=True)
     if not branch:
         raise ValueError("Check out a branch before publishing.")
-    remote = validate_remote(
-        git(project, "remote", "get-url", "--push", "--all", "origin", optional=True)
-    )
+    remote = git(project, "remote", "get-url", "--push", "--all", "origin", optional=True)
+    if remote:
+        remote = validate_remote(remote)
     candidates = sorted(_status(project) & owned)
     paths = candidates if selected is None else sorted(set(selected))
     if (selected == [] and candidates) or len(paths) > 64 or not set(paths) <= set(candidates):
@@ -350,6 +350,10 @@ def push(path: Path, *, permission: PushPermission | None = None) -> GitPublicat
 def _push(path: Path, permission: PushPermission | None = None) -> GitPublication:
     project = Path(DesignSession.load(path).project).resolve()
     record = GitPublication.load(publication_path(path))
+    if not record.remote:
+        raise ValueError(
+            "No origin was configured when this commit was reviewed; push unavailable."
+        )
     if permission is None or (permission.commit, permission.branch, permission.remote) != (
         record.commit,
         record.branch,
@@ -392,6 +396,7 @@ def validate_publication(path: Path, record: GitPublication) -> None:
     if (
         git(project, "rev-parse", "HEAD") != record.commit
         or git(project, "symbolic-ref", "--short", "HEAD") != record.branch
-        or git(project, "remote", "get-url", "--push", "--all", "origin") != record.remote
+        or git(project, "remote", "get-url", "--push", "--all", "origin", optional=True)
+        != record.remote
     ):
         raise ValueError("HEAD, branch or origin changed. Review the repository in your terminal.")

@@ -26,9 +26,9 @@ def save_policy(path: Path, enabled: bool, model: str | None) -> None:
     project = Path(DesignSession.load(path).project).resolve()
     with git.writer(project):
         branch = git.git(project, "symbolic-ref", "--short", "HEAD")
-        remote = git.validate_remote(
-            git.git(project, "remote", "get-url", "--push", "--all", "origin")
-        )
+        remote = git.git(project, "remote", "get-url", "--push", "--all", "origin", optional=True)
+        if remote:
+            remote = git.validate_remote(remote)
         store.PublicationPolicy(
             allow_reviewer_push=enabled, reviewer_model=model, branch=branch, remote=remote
         ).save(store.policy_path(path))

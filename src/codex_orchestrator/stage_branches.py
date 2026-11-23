@@ -259,10 +259,20 @@ def record_merge(path, stage_id):
         item = revision.stages[stage_id]
         receipt = git.GitPublication.load(git.publication_path(path))
         reviewer = review_store.require_reviewer(path, stage_id, receipt.reviewed_fingerprint or "")
+        if not receipt.remote:
+            approval = review_store.require_approval(
+                path, receipt.approval_id, receipt.reviewed_fingerprint or ""
+            )
+            if approval.source != "user" or artifact_digest(approval) != receipt.approval_digest:
+                raise ValueError("A local-only merge requires the user's recorded commit approval.")
         if (
             receipt.stage_id != stage_id
             or receipt.branch != item.branch
-            or not receipt.pushed
+            or (bool(receipt.remote) and not receipt.pushed)
+            or (
+                not receipt.remote
+                and git.git(project, "remote", "get-url", "origin", optional=True)
+            )
             or receipt.design_fingerprint != design_fingerprint(state)
             or receipt.reviewer_id != reviewer.id
             or receipt.reviewer_digest != artifact_digest(reviewer)
@@ -270,7 +280,7 @@ def record_merge(path, stage_id):
             or not stage_accepted(state, path, stage_id)
         ):
             raise ValueError(
-                "AI review, user-approved push and stage acceptance must match "
+                "AI review, user-approved push (or local commit) and stage acceptance must match "
                 "before recording merge."
             )
         if git.git(project, "rev-parse", f"refs/heads/{item.branch}") != receipt.commit:

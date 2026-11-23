@@ -30,14 +30,14 @@ def git_panel(project: Path, design_path: Path, action):
                     )
                     if st.form_submit_button("Connect to Git"):
                         action("Connecting repository…", lambda: service.connect(project, url))
-                st.caption("Create the remote repository first. Connecting saves origin locally.")
-                return
-            service.validate_remote(remote)
-            st.write("Connected · " + remote)
-            st.caption(
-                "If authentication fails, sign in using GitHub Desktop or gh auth login in your "
-                "terminal and retry. Git credentials stay outside project session files."
-            )
+                st.caption("Local review and commits are available without a remote.")
+            else:
+                service.validate_remote(remote)
+                st.write("Connected · " + remote)
+                st.caption(
+                    "If authentication fails, sign in using GitHub Desktop or gh auth login "
+                    "in your terminal and retry. Git credentials stay outside session files."
+                )
             if not design_path.exists():
                 return
             state = DesignSession.load(design_path)
@@ -96,6 +96,9 @@ def git_panel(project: Path, design_path: Path, action):
             if receipt.exists():
                 record = service.GitPublication.load(receipt)
                 st.write(f"Stage {record.stage_id} commit · {record.commit}")
+                if not record.remote:
+                    st.success("Local commit completed. No push destination was approved.")
+                    return
                 st.caption(f"Push destination · {record.remote} · branch {record.branch}")
                 if record.pushed:
                     st.success("Push completed.")

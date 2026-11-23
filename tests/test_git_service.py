@@ -124,6 +124,17 @@ def test_changed_remote_rejects_stale_preview(accepted):
         human_commit(path, reviewed, "Implement counter")
 
 
+def test_local_commit_without_origin_cannot_push(accepted):
+    project, path = accepted
+    service.git(project, "remote", "remove", "origin")
+    preview = service.preview(path, "core")
+    assert preview.remote == ""
+    record = human_commit(path, preview, "Implement counter locally")
+    service.validate_publication(path, record)
+    with pytest.raises(ValueError, match="No origin"):
+        service.push(path, permission=consent(path))
+
+
 def test_push_failure_keeps_commit_for_retry(accepted, monkeypatch):
     _, path = accepted
     record = human_commit(path, service.preview(path, "core"), "Implement counter")

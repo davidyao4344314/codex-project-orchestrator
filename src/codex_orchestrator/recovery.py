@@ -190,8 +190,10 @@ def inspect_project(source: Path, design_path: Path | None = None) -> ResumeSnap
     receipt_path = git_service.publication_path(path)
     if receipt_path.exists():
         receipt = git_service.GitPublication.load(receipt_path)
-        if not receipt.pushed and receipt.design_fingerprint == stage_branches.design_fingerprint(
-            state
+        if (
+            receipt.remote
+            and not receipt.pushed
+            and receipt.design_fingerprint == stage_branches.design_fingerprint(state)
         ):
             snapshot.stage_id, snapshot.status = receipt.stage_id, "push_permission_pending"
             snapshot.last_completed = f"Local commit {receipt.commit[:12]} prepared"
@@ -263,14 +265,16 @@ def inspect_project(source: Path, design_path: Path | None = None) -> ResumeSnap
             if receipt_path.exists():
                 receipt = git_service.GitPublication.load(receipt_path)
                 if (
-                    receipt.pushed
+                    (receipt.pushed or not receipt.remote)
                     and receipt.stage_id == stage.id
                     and receipt.design_fingerprint == stage_branches.design_fingerprint(state)
                 ):
-                    snapshot.last_completed = f"Stage commit {receipt.commit[:12]} pushed"
+                    snapshot.last_completed = (
+                        f"Stage commit {receipt.commit[:12]} published locally"
+                    )
                     snapshot.status, snapshot.next_action = (
                         "merge_pending",
-                        "Merge the pushed stage, refresh the base and record its merge.",
+                        "Merge the reviewed stage into the local base and record its merge.",
                     )
                     return snapshot
             try:
