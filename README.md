@@ -338,8 +338,15 @@ technical design, use these in order (replace SESSION and STAGE with actual valu
 For the streamlined terminal workflow, use:
 
 ```sh
+orchestrator cycle plan SESSION
 orchestrator cycle feature SESSION --stage STAGE --base main
 ```
+
+The combined planning command collects the brief, generates the local scope outline and
+drafts the technical design for **one** approval. It keeps both checkpoints unapproved
+until the operator approves the combined review. Save and resume the same command to
+continue without restarting a completed draft. Existing approved sessions and the
+separate `resume` and `design` commands remain supported.
 
 The feature command prepares stage branches from the approved design, advances ready tasks
 through their structured automated evidence, and displays the combined user testing checklist.

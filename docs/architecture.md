@@ -122,6 +122,13 @@ inference. It deliberately defers task count, dependencies, models, skills, owne
 technical checks to the architect. It retains the existing plan and design approvals.
 Existing saved plans, compact routing and standard AI planning remain supported.
 
+`cycle plan` uses the local outline and allows the architect to inspect a proposed brief
+without marking it approved. The combined review presents the brief and technical design;
+one explicit approval records both revisions. The draft-only source check is confined to
+planning. Delivery and publication still use the strict approved-source check. If approval
+is interrupted after saving the requirements checkpoint, the technical design stays
+unapproved until the operator resumes and approves it.
+
 Intake returns a route recommendation as part of its existing structured response. The
 auto route has a local requirement-count guard. A compact call returns a complete
 technical design (or a clarification/standard-route reason) and Python projects the

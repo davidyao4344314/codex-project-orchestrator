@@ -34,6 +34,33 @@ def fail(exc):
     raise typer.Exit(1) from exc
 
 
+@app.command("plan")
+def combined_plan(source: Path, timeout: int = typer.Option(300, min=1)):
+    """Gather requirements and review the scope and technical design together."""
+    from codex_orchestrator.design import prepare_design, run_design
+    from codex_orchestrator.interactive import run_session
+
+    try:
+        source = source.resolve()
+        cycle_manager.require_active(source)
+        session = PlanningSession.load(source)
+        if session.phase in {"intake", "planning"}:
+            session.planning_route = PlanningRoute.OUTLINE
+            session.save(source)
+            run_session(session, source, draft_only=True)
+        if session.phase not in {"review", "approved"}:
+            return
+        state, path = prepare_design(
+            source, None, architect_model=None, agent_model=None, combined_approval=True
+        )
+        if state.phase != "approved":
+            run_design(state, path, timeout)
+        if state.phase == "approved":
+            typer.echo(f"Next: orchestrator cycle feature '{source}' --stage STAGE")
+    except (OSError, ValueError, CodexError) as exc:
+        fail(exc)
+
+
 @app.command()
 def feature(
     source: Path,

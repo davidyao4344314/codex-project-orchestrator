@@ -199,7 +199,7 @@ def record_source(
     session.save(path)
 
 
-def run_session(session: PlanningSession, path: Path) -> None:
+def run_session(session: PlanningSession, path: Path, *, draft_only=False) -> None:
     typer.echo(f"Session: {path}")
     typer.echo("Type :save to save and exit, or :models at a question to change models.")
     try:
@@ -211,6 +211,8 @@ def run_session(session: PlanningSession, path: Path) -> None:
         typer.echo(f"Intake model: {session.intake_model or 'Codex configured default'}")
         typer.echo(f"Planning model: {session.planning_model or 'Codex configured default'}")
         while True:
+            if draft_only and session.phase in {"review", "approved"}:
+                return
             if session.pending_question is not None:
                 if not answer_question(session, path):
                     return
