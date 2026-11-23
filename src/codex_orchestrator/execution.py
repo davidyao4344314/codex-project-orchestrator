@@ -159,6 +159,14 @@ def start_run(state, path, task, context=None):
             run.context_digest = package.digest()
             folder.mkdir(parents=True)
             spec = prepare_worker(package, Path(state.project), folder)
+            if run.branch and task.id not in latest_runs(path, run.revision):
+                from codex_orchestrator import agent_worktrees
+                from codex_orchestrator.branch_allocation import isolated_tasks
+
+                if task.id in isolated_tasks(
+                    state.revisions[-1].design, task.stage_id
+                ) and agent_worktrees.compatible_inputs(state.project, spec, package):
+                    agent_worktrees.prepare(state.project, run)
             run.worker_contract_version = 1
             run.worker_profile = spec.profile
             run.worker_spec_digest = artifact_digest(spec)
@@ -174,6 +182,7 @@ def start_run(state, path, task, context=None):
                     "design_fingerprint": package.design_fingerprint,
                     "profile": spec.profile,
                     "sandbox": "read-only" if spec.read_only else "workspace-write",
+                    **({"agent_branch": run.agent_branch} if run.agent_branch else {}),
                 },
                 task_id=task.id,
                 stage_id=task.stage_id,
@@ -204,7 +213,12 @@ def start_run(state, path, task, context=None):
                 recovery.pop("commands_observed", None)
             prior_context = prior_thread_context(path, run, package, history)
             run.prompt, run.full_prompt_bytes, run.reused_context_files = compact_worker_prompt(
-                spec, package, previous_runs, recovery, run.branch, previous=prior_context
+                spec,
+                package,
+                previous_runs,
+                recovery,
+                run.agent_branch or run.branch,
+                previous=prior_context,
             )
             run.context_bytes = package.size_bytes()
             run.prompt_digest = prompt_digest(run.prompt)
@@ -225,6 +239,10 @@ def start_run(state, path, task, context=None):
             worker.start()
         except BaseException:
             try:
+                if run.agent_worktree:
+                    run.status = "failed"
+                    run.error = "Dispatch interrupted; isolated worktree preserved."
+                    run.save(folder / "run.json")
                 if turn:
                     turn.finish("failed")
             finally:
@@ -236,16 +254,19 @@ def start_run(state, path, task, context=None):
 
 def _worker(executable, project, folder, lock, stop, turn=None):
     run = Run.load(folder / "run.json")
+    stage_project = project
+    project = run.agent_worktree or project
+    execution_branch = run.agent_branch or run.branch
     process = None
     timer = None
     spec, before, commands = None, None, []
     observed_events = turn.events if turn else TurnEvents()
     folder = folder.resolve()
     try:
-        if run.branch:
+        if execution_branch:
             from codex_orchestrator.git_service import git
 
-            if git(Path(project), "symbolic-ref", "--short", "HEAD") != run.branch:
+            if git(Path(project), "symbolic-ref", "--short", "HEAD") != execution_branch:
                 raise ValueError("Stage branch changed before worker execution.")
         if run.worker_contract_version == 1:
             spec = WorkerSpec.load(folder / "worker_spec.json")
@@ -369,10 +390,17 @@ def _worker(executable, project, folder, lock, stop, turn=None):
                 run.error = observed_events.reconnect_warning or (
                     f"Codex exited with code {code}; see diagnostics."
                 )
-            if run.branch and git(Path(project), "symbolic-ref", "--short", "HEAD") != run.branch:
+            if (
+                execution_branch
+                and git(Path(project), "symbolic-ref", "--short", "HEAD") != execution_branch
+            ):
                 raise ValueError("Worker changed the stage branch; inspect the repository.")
             if spec and before:
                 finalize_worker(run, spec, before, project, folder, commands)
+                if run.agent_worktree and run.status == "completed":
+                    from codex_orchestrator import agent_worktrees
+
+                    agent_worktrees.integrate(stage_project, project, run, spec, folder, before)
     except Exception as exc:
         run.status, run.error = "failed", str(exc)[:4000]
     finally:
@@ -425,6 +453,8 @@ def verify_run(path, run_id, *, automated=False):
     run = Run.load(folder / "run.json")
     if run.status != "completed":
         raise ValueError("Only completed runs can be accepted after verification.")
+    if run.agent_branch and not run.agent_commit:
+        raise ValueError("The isolated agent work has not been integrated into the stage.")
     state = DesignSession.load(path)
     from codex_orchestrator.cycle_feedback import needs_retry
 

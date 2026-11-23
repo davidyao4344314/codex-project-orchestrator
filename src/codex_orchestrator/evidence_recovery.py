@@ -60,6 +60,10 @@ def reconcile_blocked_run(path: Path, run_id: str) -> Run:
         state.require_current(path)
         folder = safe_folder(path, run_id)
         run = Run.load(folder / "run.json")
+        if run.agent_branch:
+            raise ValueError(
+                "Isolated work was not integrated; inspect its worktree and retry the task."
+            )
         latest = stage_branches.valid_runs(state, path, latest_runs(path, len(state.revisions)))
         task = next((t for t in state.revisions[-1].design.tasks if t.id == run.task_id), None)
         if (

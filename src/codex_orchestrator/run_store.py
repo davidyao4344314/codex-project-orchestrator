@@ -24,6 +24,9 @@ class Run(SessionData):
     token_usage: TokenUsage | None = None
     session_warning: str | None = None
     branch: str | None = None
+    agent_branch: str | None = None
+    agent_worktree: str | None = None
+    agent_commit: str | None = None
     worker_pid: int | None = None
     worker_started: str | None = None
     recovery_from: str | None = None

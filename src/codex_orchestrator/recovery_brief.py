@@ -50,6 +50,13 @@ def build_recovery_brief(state, task, path, package):
             "Use the rebuilt assignment context and scope. Do not resume an old prompt blindly.",
         ],
     )
+    if previous.agent_branch:
+        brief["previous_agent_branch"] = previous.agent_branch
+        if not previous.agent_commit:
+            brief["cautions"].append(
+                "The previous isolated worktree was preserved without integrating its edits. "
+                "Use the current stage files and retry the approved assignment."
+            )
     file = folder / "worker_evidence.json"
     if file.exists():
         try:

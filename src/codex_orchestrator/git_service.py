@@ -190,6 +190,8 @@ def evidence_digest(state: DesignSession, path: Path, stage_id: str) -> str:
             )
         if run.prompt_digest:
             attempt += (run.prompt_digest,)
+        if run.agent_branch:
+            attempt += (run.agent_branch, run.agent_commit)
         attempts.append(attempt)
     return hashlib.sha256(json.dumps(attempts).encode()).hexdigest()
 

@@ -95,6 +95,11 @@ def review_payload(path: Path, reviewed: git.GitPreview) -> str:
                 commands=commands,
                 warnings=evidence.warnings,
                 violations=evidence.violations,
+                **(
+                    {"agent_branch": run.agent_branch, "agent_commit": run.agent_commit}
+                    if run.agent_branch
+                    else {}
+                ),
             )
         )
     files = {}

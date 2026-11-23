@@ -27,6 +27,8 @@ def check_stage_verification(state, path, stage_id, *, partial=False):
             continue
         if not run or run.status != "completed" or (not partial and not run.verified):
             raise ValueError(f"Task {task_id} needs accepted verification.")
+        if run.agent_branch and not run.agent_commit:
+            raise ValueError(f"Task {task_id} has no integrated agent commit.")
         if run.worker_contract_version != 1:
             if partial:
                 continue

@@ -67,6 +67,7 @@ def valid_runs(state, path, latest):
         if key in tasks
         and tasks[key].stage_id in revision.stages
         and run.branch == revision.stages[tasks[key].stage_id].branch
+        and (not run.agent_branch or run.status != "completed" or run.agent_commit is not None)
     }
 
 
@@ -95,6 +96,11 @@ def state_for(path):
 def clean(project):
     if git.git(project, "status", "--porcelain=v1", "--untracked-files=all"):
         raise ValueError("Commit or preserve all current changes before switching stage branches.")
+
+
+def default_base(project):
+    branch = git.git(project, "symbolic-ref", "--short", "HEAD", optional=True)
+    return branch if branch and not branch.startswith("orchestrator/") else "main"
 
 
 def enable(path, base="main"):
