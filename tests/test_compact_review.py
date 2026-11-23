@@ -12,6 +12,7 @@ from codex_orchestrator.run_store import run_directory
 def test_review_payload_retains_untracked_source_and_shared_contracts(accepted):
     _, path = accepted
     data = json.loads(review_agent.review_payload(path, git.preview(path, "core")))
+    assert data["human_test_observation"] == "Reviewed and tested"
     context = data["assignments"][0]["context"]
     assert context["requirements"] == ["R1"]
     assert data["requirements"]["requirements"] == ["Count recursively from 0 to 5"]

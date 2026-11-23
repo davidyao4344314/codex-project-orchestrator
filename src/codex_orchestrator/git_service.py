@@ -13,7 +13,11 @@ from urllib.parse import urlsplit
 from codex_orchestrator import project_activity
 from codex_orchestrator import review_store as reviews
 from codex_orchestrator.context_files import is_private_path, sensitive_text
-from codex_orchestrator.coordination_store import design_fingerprint, stage_accepted
+from codex_orchestrator.coordination_store import (
+    design_fingerprint,
+    load_coordination,
+    stage_accepted,
+)
 from codex_orchestrator.design import check_source
 from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.execution import project_lock
@@ -229,6 +233,8 @@ def _preview(path: Path, stage_id: str, selected: list[str] | None = None) -> Gi
 
     feedback = decision(state, path, stage_id)
     identity = [design_fingerprint(state), head, branch, remote, observed, diff, attempts]
+    acceptance = load_coordination(state, path).accepted_stages[stage_id]
+    identity.append(acceptance.model_dump(mode="json"))
     if feedback:
         payload = feedback.model_dump(mode="json")
         # Old acceptance receipts predate delivery session identities.
