@@ -85,13 +85,12 @@ below (do not use the example filename literally):
 ```sh
 SESSION="plans/session-EXAMPLE.json"
 orchestrator cycle models "$SESSION"
-orchestrator resume "$SESSION"
-orchestrator design "$SESSION"
+orchestrator cycle plan "$SESSION"
 orchestrator cycle history "$SESSION"
 orchestrator cycle status "$SESSION"
 ```
 
-Answer questions and review/approve both the requirements and the technical design.
+Answer questions and approve the requirements and technical design together.
 The notes app brief asks for independent database, backend, frontend and integration
 assignments, with exact files and test evidence. Read the printed stage and task IDs; these
 are generated per design, so do not assume that their names match the examples.
@@ -176,6 +175,9 @@ orchestrator cycle usage "$SESSION" --details
 These commands only inspect local records. The first shows saved thread IDs; the second
 groups measured token usage and elapsed time by role, stage, task and fresh/resumed turns.
 It also groups by requested model to help compare allocation choices.
+Uncached input tokens are calculated per turn as input tokens minus cached input tokens
+when both counts are available. Cached input is part of total input. Check token
+coverage before comparing runs; missing values remain unknown.
 Missing usage is reported as unknown: historical/ad-hoc calls are not reconstructed.
 The session ID and observed token counts are also shown after a managed turn.
 
@@ -293,9 +295,11 @@ changes are included in this version.
 
 ```mermaid
 flowchart TD
-    Idea[New cycle: ask for goal] --> Plan[Clarify requirements and approve technical design]
-    Plan --> Stage[Prepare stage branch and implement]
-    Stage --> Tests[Verify task and accept stage tests]
+    Idea[New cycle: ask for goal] --> Plan[Clarify requirements and draft technical design]
+    Plan --> Approval[User approves combined plan]
+    Approval --> Stage[Prepare stage branch and implement]
+    Stage --> Automated[Run automated task and combined stage checks]
+    Automated --> Tests[Show evidence and user testing page]
     Tests --> FeedbackChoice{Your feedback}
     FeedbackChoice -->|Improve| Target[Retry selected affected assignment]
     Target --> Tests
@@ -303,11 +307,12 @@ flowchart TD
     Final -->|No| Review[Independent AI review]
     Final -->|Yes| Goal[Record goal-achieved feedback]
     Goal --> Review
-    Review -->|Changes requested| Stage
-    Review -->|Approved| Commit[Local commit]
-    Commit --> Permission{User permits push?}
-    Permission -->|Yes| Merge[Push then manually merge and record merge]
-    Permission -->|Not yet| Commit
+    Review -->|Changes requested| Target
+    Review -->|Approved| Permission{User approves publication?}
+    Permission -->|Yes| Commit[Commit and push if origin configured]
+    Permission -->|Not yet| PauseReview[Save accepted work and review]
+    PauseReview --> Permission
+    Commit --> Merge[Manually merge and record merge]
     Merge --> More{More stages?}
     More -->|Yes| Stage
     More -->|No| Feedback[Finish cycle with recorded goal acceptance]
@@ -320,8 +325,7 @@ Start from the orchestrator repository with its Python environment activated:
 
 ```sh
 orchestrator cycle new /path/to/project
-orchestrator resume plans/session-EXAMPLE.json
-orchestrator design plans/session-EXAMPLE.json
+orchestrator cycle plan plans/session-EXAMPLE.json
 orchestrator cycle status plans/session-EXAMPLE.json
 orchestrator cycle history plans/session-EXAMPLE.json
 ```
@@ -329,11 +333,9 @@ orchestrator cycle history plans/session-EXAMPLE.json
 Use the real session path printed by the first command. For an existing session, use
 `orchestrator cycle register SESSION` instead. Imported timestamps are estimated from the
 session's modification time and marked imported. Keep sessions under ignored plans/.
-Before delivering, initialize the project's Git repository, configure origin and Git identity,
-and make an initial clean base commit. Use the default design output path.
-
-Run `orchestrator cycle deliver --help` for terminal stage controls. With an approved
-technical design, use these in order (replace SESSION and STAGE with actual values):
+Before delivering, initialize the project's Git repository, configure Git identity,
+and make an initial clean base commit. Configure origin if you want to push to a remote.
+Use the default design output path.
 
 For the streamlined terminal workflow, use:
 
@@ -347,6 +349,8 @@ drafts the technical design for **one** approval. It keeps both checkpoints unap
 until the operator approves the combined review. Save and resume the same command to
 continue without restarting a completed draft. Existing approved sessions and the
 separate `resume` and `design` commands remain supported.
+The command prints the first ready stage ID. Use `cycle status SESSION` to inspect
+saved progress and locate the next feature command.
 
 The feature command prepares stage branches from the approved design, advances ready tasks
 through their structured automated evidence, and displays the combined user testing checklist.
@@ -355,6 +359,22 @@ actual test evidence, `:improve` for scoped feedback, or `:save` to pause. After
 AI review passes, confirm publication once. With no origin, the command creates a local
 commit. A configured remote is displayed before approval and only the approved branch is
 pushed. Existing committed work can be resumed without launching another worker or reviewer.
+Newly generated plans assign each combined stage check to a worker after its required
+implementation tasks. Passing command evidence is required before stage acceptance.
+Older plans retain their recorded verification history and display a manual confirmation
+notice for checks without an evidence mapping.
+
+The independent reviewer receives your recorded manual test results along with the
+automated evidence. An unchanged completed review can be reused, even if it requested
+changes. Resume with the same feature command to see the saved findings. After resolving
+the findings, run the feature command again. To explicitly retry an interrupted or
+completed review of an accepted feature, use:
+
+```sh
+orchestrator cycle feature SESSION --stage STAGE --retry-review
+```
+
+This option requires accepted feature testing and does not dispatch implementation work.
 Merge the reviewed stage into the integration base and record the merge before proceeding.
 The manual commands below remain available for diagnostics and recovery.
 
