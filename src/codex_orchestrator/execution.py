@@ -451,7 +451,7 @@ def verify_run(path, run_id, *, automated=False):
         report = WorkerResult.load(folder / "worker_result.json")
         evidence = review_evidence(folder)
         # Read-only tasks can represent an external prerequisite requiring real human input.
-        if spec.read_only and spec.human_checks:
+        if spec.read_only and (spec.human_checks or report.human_checks):
             raise ValueError("This read-only prerequisite needs its required human checks.")
         matches = dict(evidence.check_matches)
         if (
