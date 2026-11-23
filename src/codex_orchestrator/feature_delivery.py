@@ -19,6 +19,7 @@ from codex_orchestrator.coordination_store import design_fingerprint
 from codex_orchestrator.cycle_store import find_history
 from codex_orchestrator.design import check_source
 from codex_orchestrator.design_models import DesignSession
+from codex_orchestrator.design_validation import stage_check_description
 from codex_orchestrator.run_store import Run, run_directory
 from codex_orchestrator.stage_review import current_review, review_stage
 
@@ -71,8 +72,17 @@ def feature_tests(state, path, stage, schedule):
             human_checks.extend(report.human_checks)
         for check in dict.fromkeys(human_checks):
             typer.echo(f"  User check: {check}")
-    for check in stage.gate.agent_checks:
+    for index, check in enumerate(stage.gate.agent_checks, 1):
         typer.echo(f"  Combined check: {check.check} (expected: {check.expected_result})")
+        description = stage_check_description(stage, index, check)
+        if not any(
+            description in task.automated_checks
+            for task in state.revisions[-1].design.tasks
+            if task.stage_id == stage.id
+        ):
+            typer.echo(
+                "    Legacy plan: no separate evidence mapping; confirm this check manually."
+            )
     for check in stage.gate.user_checks:
         typer.echo(f"  User test: {check}")
 

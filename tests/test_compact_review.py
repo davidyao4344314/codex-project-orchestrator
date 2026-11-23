@@ -1,12 +1,16 @@
 import json
 
+import pytest
 from test_git_service import accepted as accepted
 from test_persistent_workers import wait
 
 from codex_orchestrator import coordinator, execution, review_agent
 from codex_orchestrator import git_service as git
+from codex_orchestrator.coordination_store import checkpoint_path, load_coordination
 from codex_orchestrator.design_models import DesignSession
+from codex_orchestrator.design_validation import assign_stage_checks
 from codex_orchestrator.run_store import run_directory
+from codex_orchestrator.stage_verification import check_stage_verification
 
 
 def test_review_payload_retains_untracked_source_and_shared_contracts(accepted):
@@ -20,6 +24,25 @@ def test_review_payload_retains_untracked_source_and_shared_contracts(accepted):
     assert data["files"]["counter.py"]["text"] == "print(5)\n"
     assert "remote" not in data
     assert data["assignments"][0]["commands"][0]["exit_code"] == 0
+
+
+def test_changed_manual_evidence_changes_review_identity(accepted):
+    _, path = accepted
+    before = git.preview(path, "core")
+    state = DesignSession.load(path)
+    coordination = load_coordination(state, path)
+    coordination.accepted_stages["core"].evidence = "Tested again"
+    coordination.save(checkpoint_path(state, path))
+    after = git.preview(path, "core")
+    assert before.fingerprint != after.fingerprint
+
+
+def test_combined_check_requires_matching_worker_evidence(accepted):
+    _, path = accepted
+    state = DesignSession.load(path)
+    assign_stage_checks(state.revisions[-1].design)
+    with pytest.raises(ValueError, match="Missing passing evidence"):
+        check_stage_verification(state, path, "core")
 
 
 def test_review_uses_exact_tracked_diff_hash_and_bounded_command_evidence(accepted):

@@ -4,7 +4,19 @@ import pytest
 
 from codex_orchestrator.codex import CodexError
 from codex_orchestrator.design_models import TechnicalDesign
-from codex_orchestrator.design_validation import context_blockers, validate_design
+from codex_orchestrator.design_validation import (
+    assign_stage_checks,
+    context_blockers,
+    validate_design,
+)
+
+
+def test_combined_checks_are_assigned_once(technical_payload):
+    design = TechnicalDesign.model_validate(technical_payload)
+    assign_stage_checks(design)
+    assign_stage_checks(design)
+    checks = design.tasks[0].automated_checks
+    assert checks.count("[core:G1] Run termination test (expected: Stops at 5)") == 1
 
 
 @pytest.mark.parametrize(

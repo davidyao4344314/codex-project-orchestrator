@@ -129,6 +129,16 @@ planning. Delivery and publication still use the strict approved-source check. I
 is interrupted after saving the requirements checkpoint, the technical design stays
 unapproved until the operator resumes and approves it.
 
+New architect and compact designs bind combined stage checks to a task assigned to
+the check owner after all other stage writers. The stable stage/check label is included
+in the task check description, and stage verification requires matching command evidence.
+Older saved designs retain their existing task checks and historical approvals.
+
+Independent review includes the recorded human stage observation and fingerprints it.
+An unchanged completed review is reused, including negative decisions. Explicit
+`cycle feature --retry-review` retries review only after feature acceptance.
+Usage reports include uncached input where both input and cached counts are available.
+
 Intake returns a route recommendation as part of its existing structured response. The
 auto route has a local requirement-count guard. A compact call returns a complete
 technical design (or a clarification/standard-route reason) and Python projects the

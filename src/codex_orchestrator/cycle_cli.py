@@ -138,7 +138,17 @@ def status(source: Path):
             design_path = current.with_suffix(".design.json")
             if design_path.exists():
                 state = DesignSession.load(design_path)
-                if state.phase == "approved":
+                if state.phase == "approved" and snapshot.status not in {
+                    "stale_design",
+                    "active",
+                    "recoverable",
+                    "unknown",
+                    "paused",
+                    "stale_output",
+                    "retry_pending",
+                    "merge_pending",
+                    "publication_needs_review",
+                }:
                     settings, revision = stage_branches.current(state, design_path)
                     merged = (
                         {key for key, item in revision.stages.items() if item.merged_commit}
