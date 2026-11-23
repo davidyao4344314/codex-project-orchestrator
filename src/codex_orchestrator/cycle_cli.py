@@ -56,7 +56,8 @@ def combined_plan(source: Path, timeout: int = typer.Option(300, min=1)):
         if state.phase != "approved":
             run_design(state, path, timeout)
         if state.phase == "approved":
-            typer.echo(f"Next: orchestrator cycle feature '{source}' --stage STAGE")
+            stage = next(s for s in state.revisions[-1].design.stages if not s.depends_on)
+            typer.echo(f"Next: orchestrator cycle feature '{source}' --stage {stage.id}")
     except (OSError, ValueError, CodexError) as exc:
         fail(exc)
 
@@ -67,12 +68,13 @@ def feature(
     stage: str = typer.Option(..., help="Approved delivery stage ID"),
     base: str = "main",
     retry: bool = typer.Option(False, help="Explicitly retry one blocked task"),
+    retry_review: bool = typer.Option(False, help="Explicitly retry independent review"),
 ):
     """Deliver an approved feature with one user testing and publication checkpoint."""
     from codex_orchestrator.feature_delivery import deliver_feature
 
     try:
-        deliver_feature(source.resolve(), stage, base, retry=retry)
+        deliver_feature(source.resolve(), stage, base, retry=retry, retry_review=retry_review)
     except (OSError, ValueError, CodexError) as exc:
         fail(exc)
 
@@ -90,7 +92,7 @@ def new(
         goal = goal if goal is not None else typer.prompt("What would you like to build?")
         path = cycle_manager.create_project(project, goal, directory.resolve(), route=route)
         typer.echo(f"Cycle 001 session: {path}")
-        typer.echo(f"Continue with: orchestrator resume '{path}'")
+        typer.echo(f"Continue with: orchestrator cycle plan '{path}'")
     except (OSError, ValueError, CodexError) as exc:
         fail(exc)
 
@@ -131,7 +133,32 @@ def status(source: Path):
         if cycle.status == "completed":
             typer.echo("Ready for the next goal. Run orchestrator cycle next with this session.")
         else:
-            typer.echo(recovery.inspect_project(current).model_dump_json(indent=2))
+            snapshot = recovery.inspect_project(current)
+            typer.echo(snapshot.model_dump_json(indent=2))
+            design_path = current.with_suffix(".design.json")
+            if design_path.exists():
+                state = DesignSession.load(design_path)
+                if state.phase == "approved":
+                    settings, revision = stage_branches.current(state, design_path)
+                    merged = (
+                        {key for key, item in revision.stages.items() if item.merged_commit}
+                        if revision
+                        else set()
+                    )
+                    ready = next(
+                        (
+                            s
+                            for s in state.revisions[-1].design.stages
+                            if s.id not in merged and set(s.depends_on) <= merged
+                        ),
+                        None,
+                    )
+                    if ready:
+                        base = settings.base if settings else "main"
+                        typer.echo(
+                            f"Continue feature: orchestrator cycle feature '{current}' "
+                            f"--stage {ready.id} --base {base}"
+                        )
     except (OSError, ValueError, CodexError) as exc:
         fail(exc)
 
@@ -336,7 +363,7 @@ def next_cycle(source: Path, goal: str | None = None):
         )
         path = cycle_manager.start_next(source.resolve(), goal)
         typer.echo(f"New cycle session: {path}")
-        typer.echo(f"Continue with: orchestrator resume '{path}'")
+        typer.echo(f"Continue with: orchestrator cycle plan '{path}'")
     except (OSError, ValueError, CodexError) as exc:
         fail(exc)
 

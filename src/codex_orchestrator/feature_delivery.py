@@ -77,7 +77,9 @@ def feature_tests(state, path, stage, schedule):
         typer.echo(f"  User test: {check}")
 
 
-def deliver_feature(source: Path, stage_id: str, base: str, *, retry=False) -> None:
+def deliver_feature(
+    source: Path, stage_id: str, base: str, *, retry=False, retry_review=False
+) -> None:
     cycle_manager.require_active(source)
     path = source.with_suffix(".design.json")
     state = DesignSession.load(path)
@@ -90,6 +92,8 @@ def deliver_feature(source: Path, stage_id: str, base: str, *, retry=False) -> N
     project = Path(state.project)
     if execution.is_busy(project):
         raise ValueError("Wait for the active project operation to finish.")
+    if retry_review and coordinator.stage_schedule(path, stage_id).status != "accepted":
+        raise ValueError("Complete feature testing before retrying independent review.")
     if stage_branches.load(path) is None:
         stage_branches.enable(path, base)
     settings, revision = stage_branches.current(state, path)
@@ -134,13 +138,18 @@ def deliver_feature(source: Path, stage_id: str, base: str, *, retry=False) -> N
     ):
         cycle_feedback.accept_goal(source, stage_id, "Feature checks accepted by operator.")
     preview = git_service.preview(path, stage_id)
-    try:
-        review = review_store.require_reviewer(path, stage_id, preview.fingerprint)
-    except ValueError:
+    review = review_store.latest_reviewer(path, stage_id)
+    if retry_review or review is None or review.fingerprint != preview.fingerprint:
         review = review_agent.run_review(path, preview)
+    elif review.input_id == review.id:
+        typer.echo("Review was interrupted. Resume with --retry-review to request another review.")
+        return
     typer.echo(review.result.model_dump_json(indent=2))
     if review.result.decision != "approved":
-        typer.echo("Review needs attention. Record scoped feedback before retrying.")
+        typer.echo(
+            "Review needs attention. Record scoped feedback or use --retry-review "
+            "to retry only the review."
+        )
         return
     typer.echo(f"Branch: {preview.branch}\nDestination: {preview.remote or 'local Git repository'}")
     typer.echo("Files: " + ", ".join(preview.paths))

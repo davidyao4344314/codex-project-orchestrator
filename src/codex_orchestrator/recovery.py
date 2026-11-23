@@ -134,13 +134,19 @@ def recover_interrupted(path: Path, run_id: str, *, confirmed=False) -> None:
 
 def inspect_project(source: Path, design_path: Path | None = None) -> ResumeSnapshot:
     session = PlanningSession.load(source)
+    path = design_path or source.with_name(source.stem + ".design.json")
     if session.phase != "approved":
+        if path.exists() and DesignSession.load(path).combined_approval:
+            return ResumeSnapshot(
+                view="Technical design",
+                status=DesignSession.load(path).phase,
+                next_action=f"orchestrator cycle plan '{source}'",
+            )
         return ResumeSnapshot(
             view="Requirements",
             status=session.phase,
-            next_action="Answer the saved question or review/continue requirements explicitly.",
+            next_action=f"orchestrator cycle plan '{source}'",
         )
-    path = design_path or source.with_name(source.stem + ".design.json")
     if not path.exists():
         return ResumeSnapshot(
             view="Technical design",

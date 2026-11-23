@@ -107,7 +107,16 @@ def input_path(path: Path, input_id: str) -> Path:
 
 
 def require_reviewer(path: Path, stage_id: str, fingerprint: str) -> ReviewRecord:
-    record = next(
+    record = latest_reviewer(path, stage_id)
+    if record is None:
+        raise ValueError("Run the independent AI review before committing or pushing.")
+    if record.fingerprint != fingerprint or record.result.decision != "approved":
+        raise ValueError("Current changes need approval from the independent AI reviewer.")
+    return require_approval(path, record.id, fingerprint)
+
+
+def latest_reviewer(path: Path, stage_id: str) -> ReviewRecord | None:
+    return next(
         (
             r
             for r in reversed(load_reviews(path).records)
@@ -115,8 +124,3 @@ def require_reviewer(path: Path, stage_id: str, fingerprint: str) -> ReviewRecor
         ),
         None,
     )
-    if record is None:
-        raise ValueError("Run the independent AI review before committing or pushing.")
-    if record.fingerprint != fingerprint or record.result.decision != "approved":
-        raise ValueError("Current changes need approval from the independent AI reviewer.")
-    return require_approval(path, record.id, fingerprint)

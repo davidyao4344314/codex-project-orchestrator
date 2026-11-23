@@ -2,7 +2,7 @@ from test_git_service import accepted as accepted
 from test_stage_branch_services import project as project
 from typer.testing import CliRunner
 
-from codex_orchestrator import git_service, stage_branches
+from codex_orchestrator import git_service, review_agent, review_store, stage_branches
 from codex_orchestrator.cli import app
 from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.run_store import latest_runs
@@ -42,3 +42,32 @@ def test_declining_feature_publication_leaves_code_uncommitted(project):
     assert result.exit_code == 0, result.output
     assert not git_service.publication_path(path).exists()
     assert (root / "counter.py").exists()
+
+
+def test_unchanged_rejected_review_is_reused(project, monkeypatch):
+    root, path = project
+    git_service.git(root, "remote", "remove", "origin")
+    source = DesignSession.load(path).source_file
+    calls = []
+
+    def reject(*args, **kwargs):
+        calls.append(1)
+        return review_store.ReviewDecision(
+            decision="changes_requested",
+            summary="Needs correction",
+            findings=[],
+            additional_human_checks=[],
+        )
+
+    monkeypatch.setattr(review_agent, "codex_response", reject)
+    runner = CliRunner()
+    command = ["cycle", "feature", source, "--stage", "core"]
+    result = runner.invoke(app, command, input="Tested feature\n")
+    assert result.exit_code == 0, result.output
+    result = runner.invoke(app, command)
+    assert result.exit_code == 0, result.output
+    assert "Needs correction" in result.output
+    assert len(calls) == 1
+    result = runner.invoke(app, [*command, "--retry-review"])
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 2
