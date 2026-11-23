@@ -77,6 +77,8 @@ def test_usage_report_aggregates_current_and_archived_deliveries_without_inferen
     assert report["total"]["resume_attempts"] == 1
     assert report["total"]["token_totals"]["input_tokens"] == 370
     assert report["total"]["token_totals"]["cached_input_tokens"] == 160
+    assert report["by_task"]["backend"]["token_totals"]["uncached_input_tokens"] == 100
+    assert report["by_role"]["reviewer"]["token_totals"]["uncached_input_tokens"] is None
     assert report["total"]["token_totals"]["output_tokens"] == 80
     assert report["total"]["token_coverage_turns"]["cached_input_tokens"] == 2
     assert report["total"]["observed_tool_calls"] == 4

@@ -36,6 +36,15 @@ def stats(records):
         totals[field] = sum(values) if values else None
         coverage[field] = len(values)
     tools = [r.observed_tool_calls for r in records if r.observed_tool_calls is not None]
+    uncached = [
+        r.usage.input_tokens - r.usage.cached_input_tokens
+        for r in records
+        if r.usage is not None
+        and r.usage.input_tokens is not None
+        and r.usage.cached_input_tokens is not None
+    ]
+    totals["uncached_input_tokens"] = sum(uncached) if uncached else None
+    coverage["uncached_input_tokens"] = len(uncached)
     commands = [r.observed_commands for r in records if r.observed_commands is not None]
     return {
         "attempts": len(records),
