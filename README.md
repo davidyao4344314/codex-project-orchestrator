@@ -293,6 +293,37 @@ completion timestamps, delivered changes, feedback and verified stage commit SHA
 The existing planning, stage execution, review and Git gates are reused. No browser UI
 changes are included in this version.
 
+### Interactive cycle navigation
+
+Run from the orchestrator's activated Python environment:
+
+```sh
+orchestrator cycle start
+```
+
+Choose a saved project or create a new cycle, then select the next action from
+the menu. To open an exact saved session directly:
+
+```sh
+orchestrator cycle start plans/session-EXAMPLE.json
+```
+
+The menu reads the current checkpoint and offers the relevant actions, including
+planning and approval, feature implementation and tests, PR merge or local merge,
+scoped corrections, cycle completion and a new development cycle. Each action
+returns to the menu. The user is still asked to approve the plan, publication
+and merge at the existing checkpoints.
+
+You can inspect usage and history, adjust context file and package budgets, and
+check GitHub connection from the menu. Failure or a declined approval returns to
+saved progress. Explicit retry and recovery remain available when relevant.
+Select **Save and exit** or type `:save` at a menu to pause. Opening the menu
+does not launch an AI request; only choosing a planning, implementation or
+review action can do so.
+
+For local-only project creation, use `orchestrator cycle start --local`.
+The individual terminal commands below remain available for direct control and recovery.
+
 ### GitHub connection (initial setup)
 
 Before asking for a new project's goal, `cycle new` checks its local Git repository,

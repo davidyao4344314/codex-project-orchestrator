@@ -24,6 +24,7 @@ later integrations.
 | Execution adapter | `execution` | Start/stop Codex, project writer lock, timeout, prerequisites, verification |
 | Run storage | `run_store` | Validated snapshots, bounded cache and log previews, latest-attempt lookup |
 | Terminal interface | `cli`, `design_display` | Arguments, prompts and terminal presentation |
+| Interactive cycle navigation | `cycle_navigation`, `cycle_cli` | Saved project selection and explicit state-dependent terminal actions |
 | GitHub connection | `github_connection`, `github_cli` | Local Git origin inspection, gh authentication/access check, explicit setup |
 | GitHub PR delivery | `github_api`, `github_pr`, `pr_description`, `github_pr_cli` | Approved PR creation, CI checks, exact-head merge and recovery |
 | Branch allocation | `branch_allocation`, `agent_worktrees`, `stage_branches` | Graph-derived agent isolation, audited local integration and stage merge ancestry |
@@ -35,6 +36,13 @@ rather than inventing their own approval or dependency rules. Keep assignment co
 independent of either interface. New transports should adapt these services instead of
 creating a second workflow implementation. Small browser components use textContent for
 untrusted labels; they send IDs back for Python-side validation.
+
+The terminal's `cycle start` menu reads the active cycle and recovery snapshot on
+each iteration. It delegates to existing planning, feature delivery, feedback,
+usage and PR commands. Stage selection prefers the active unmerged stage, then a
+prerequisite-ready stage. Local-only merges use a clean, verified fast-forward
+after explicit user consent and the same merge-recording gate. Menu inspection
+and saving do not start inference or automatically replay failed operations.
 
 ## Findings addressed
 
