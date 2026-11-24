@@ -324,6 +324,24 @@ review action can do so.
 For local-only project creation, use `orchestrator cycle start --local`.
 The individual terminal commands below remain available for direct control and recovery.
 
+#### Recording terminal output for a Codex review
+
+To keep a live local transcript while using the interactive menu:
+
+```sh
+orchestrator cycle start --record
+```
+
+Or resume a specific project with `orchestrator cycle start SESSION --record`.
+The terminal prints the recording path, which is a separate private log file
+under `plans/terminal-logs/` (or the selected `--directory`). Prompts and
+Python command output are recorded as they appear, including recognized errors.
+The logs are ignored by Git and recognizable credentials are omitted from recorded
+lines. The recording is local; it does not automatically submit a message to a
+Codex chat. Ask Codex to inspect the latest terminal log from the shared workspace.
+Shell history, direct subprocess terminal output and password entry are outside
+this recording. Keep transcripts private because they can contain project details.
+
 ### GitHub connection (initial setup)
 
 Before asking for a new project's goal, `cycle new` checks its local Git repository,
