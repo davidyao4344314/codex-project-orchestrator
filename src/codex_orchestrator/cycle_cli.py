@@ -4,6 +4,7 @@ import json
 import time
 from enum import StrEnum
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -28,6 +29,24 @@ from codex_orchestrator.session import PlanningRoute, PlanningSession
 from codex_orchestrator.stage_review import review_stage
 
 app = typer.Typer(no_args_is_help=True)
+
+
+@app.command("start")
+def start(
+    source: Annotated[Path | None, typer.Argument()] = None,
+    directory: Path = Path("plans"),
+    local: bool = typer.Option(False, "--local"),
+    timeout: int = typer.Option(300, min=1),
+):
+    """Guide a project from saved planning through delivery and the next cycle."""
+    from codex_orchestrator.cycle_navigation import run
+
+    try:
+        run(source, directory, local=local, timeout=timeout)
+    except (KeyboardInterrupt, typer.Abort):
+        typer.echo("Progress saved. Run cycle start again to resume.")
+    except (OSError, ValueError, CodexError) as exc:
+        fail(exc)
 
 
 def fail(exc):
@@ -186,29 +205,12 @@ def status(source: Path):
                     "merge_pending",
                     "publication_needs_review",
                 }:
-                    settings, revision = stage_branches.current(state, design_path)
-                    merged = (
-                        {key for key, item in revision.stages.items() if item.merged_commit}
-                        if revision
-                        else set()
-                    )
-                    ready = next(
-                        (
-                            s
-                            for s in state.revisions[-1].design.stages
-                            if s.id not in merged and set(s.depends_on) <= merged
-                        ),
-                        None,
-                    )
+                    ready, base = stage_branches.next_stage(state, design_path)
                     if ready:
-                        base = (
-                            settings.base
-                            if settings
-                            else stage_branches.default_base(Path(state.project))
-                        )
+                        base = base or stage_branches.default_base(Path(state.project))
                         typer.echo(
                             f"Continue feature: orchestrator cycle feature '{current}' "
-                            f"--stage {ready.id} --base {base}"
+                            f"--stage {ready} --base {base}"
                         )
     except (OSError, ValueError, CodexError) as exc:
         fail(exc)
