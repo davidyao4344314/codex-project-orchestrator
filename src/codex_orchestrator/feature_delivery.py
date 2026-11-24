@@ -116,8 +116,13 @@ def deliver_feature(
         raise ValueError("Wait for the active project operation to finish.")
     if retry_review and coordinator.stage_schedule(path, stage_id).status != "accepted":
         raise ValueError("Complete feature testing before retrying independent review.")
-    if stage_branches.load(path) is None:
-        stage_branches.enable(path, base or stage_branches.default_base(project))
+    saved_branches = stage_branches.load(path)
+    if saved_branches is None or stage_branches.revision_key(state) not in saved_branches.revisions:
+        stage_branches.enable(
+            path,
+            base
+            or (saved_branches.base if saved_branches else stage_branches.default_base(project)),
+        )
     settings, revision = stage_branches.current(state, path)
     if base and base != settings.base:
         raise ValueError(f"This cycle uses integration base {settings.base}.")

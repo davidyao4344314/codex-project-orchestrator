@@ -56,6 +56,29 @@ def current(state, path):
     return settings, revision
 
 
+def next_stage(state, path):
+    """Prefer the unmerged active stage, otherwise the first prerequisite-ready stage."""
+    settings = load(path)
+    revision = settings.revisions.get(revision_key(state)) if settings else None
+    merged = (
+        {key for key, item in revision.stages.items() if item.merged_commit} if revision else set()
+    )
+    active = (
+        next((key for key, item in revision.stages.items() if not item.merged_commit), None)
+        if revision
+        else None
+    )
+    stage = active or next(
+        (
+            item.id
+            for item in state.revisions[-1].design.stages
+            if item.id not in merged and set(item.depends_on) <= merged
+        ),
+        None,
+    )
+    return stage, settings.base if settings else None
+
+
 def valid_runs(state, path, latest):
     settings, revision = current(state, path)
     if settings is None:
@@ -253,6 +276,37 @@ def refresh_base(path):
             raise ValueError("Local base diverged from the remote. Resolve it in your terminal.")
         git.git(project, "switch", settings.base)
         git.git(project, "merge", "--ff-only", fetched)
+
+
+def merge_local(path, stage_id):
+    """Fast-forward a local-only approved stage after explicit terminal consent."""
+    state, project = state_for(path)
+    with git.writer(project):
+        settings, revision = current(state, path)
+        if settings is None or stage_id not in revision.stages:
+            raise ValueError("Prepare the delivery stage first.")
+        receipt = git.GitPublication.load(git.publication_path(path))
+        if receipt.remote or receipt.stage_id != stage_id:
+            raise ValueError("This action requires a local-only stage publication.")
+        clean(project)
+        active = git.git(project, "symbolic-ref", "--short", "HEAD")
+        if active not in {settings.base, revision.stages[stage_id].branch}:
+            raise ValueError("Switch to the stage or integration base before merging.")
+        base = f"refs/heads/{settings.base}"
+        if not ancestor(project, receipt.commit, base):
+            git.validate_publication(path, receipt)
+            approval = review_store.require_approval(
+                path, receipt.approval_id, receipt.reviewed_fingerprint or ""
+            )
+            if approval.source != "user":
+                raise ValueError("Local merge requires recorded user approval.")
+            if not ancestor(project, git.git(project, "rev-parse", base), receipt.commit):
+                raise ValueError("Integration base diverged; inspect it before merging.")
+            git.git(project, "switch", settings.base)
+            git.git(project, "merge", "--ff-only", receipt.commit)
+        elif active != settings.base:
+            git.git(project, "switch", settings.base)
+    record_merge(path, stage_id)
 
 
 def record_merge(path, stage_id):

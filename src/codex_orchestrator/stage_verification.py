@@ -19,6 +19,10 @@ def check_stage_verification(state, path, stage_id, *, partial=False):
     design = state.revisions[-1].design
     tasks = {task.id: task for task in design.tasks if task.stage_id == stage_id}
     latest = latest_runs(path, len(state.revisions))
+    if partial:
+        from codex_orchestrator.stage_branches import valid_runs
+
+        latest = valid_runs(state, path, latest)
     predecessors = ancestors(task_graph(design))
     attempts = []
     for task_id in tasks:

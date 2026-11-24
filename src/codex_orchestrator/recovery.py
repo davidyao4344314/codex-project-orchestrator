@@ -220,18 +220,15 @@ def inspect_project(source: Path, design_path: Path | None = None) -> ResumeSnap
         )
         return snapshot
     try:
-        settings, branch_revision = stage_branches.current(state, path)
+        stage_branches.current(state, path)
         stage_branches.require_setup(state, path)
     except (ValueError, CodexError) as exc:
         snapshot.status, snapshot.next_action = "branch_setup_needed", str(exc)
         return snapshot
     latest = stage_branches.valid_runs(state, path, latest_runs(path, len(state.revisions)))
+    next_id, _ = stage_branches.next_stage(state, path)
     for stage in state.revisions[-1].design.stages:
-        if (
-            branch_revision
-            and stage.id in branch_revision.stages
-            and branch_revision.stages[stage.id].merged_commit
-        ):
+        if stage.id != next_id:
             continue
         schedule = stage_schedule(path, stage.id)
         snapshot.stage_id = stage.id
