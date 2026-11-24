@@ -506,6 +506,18 @@ history and current context-resource hashes. Historical commands/violations are 
 all required tests remain mandatory. Secrets recognizable by existing heuristics are excluded.
 `recovery_view` opens the derived view and exposes explicit recovery/navigation controls.
 
+Worker reports must include each planned check exactly once. Supplemental check IDs are allowed
+when they are unique and have matching observed command/exit evidence. They are labeled in the
+evidence and do not replace required checks. A retry may describe already-existing owned files;
+the before/after snapshots must prove those files existed, were readable and remained unchanged.
+Such entries are removed from the normalized net-change report and retained in the raw report
+and evidence warnings. Missing actual changes and out-of-scope changes remain blocking.
+
+Local evidence reconciliation supports these retry report mismatches in addition to literal
+command-wrapper mismatches. It replays the bounded saved events and validates the original
+report and workspace hashes, preserves the original report/evidence in an audit receipt, and
+returns the latest attempt to completed but unverified. No model call or command replay occurs.
+
 Process observations are local and conservative, with stable UTC/C-locale owner start strings.
 They are not a durable supervisor, distributed transaction or exhaustive external-writer detector.
 The gap before child metadata is checkpointed and detached children require manual inspection.

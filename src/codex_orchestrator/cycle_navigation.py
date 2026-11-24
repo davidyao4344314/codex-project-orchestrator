@@ -18,6 +18,7 @@ from codex_orchestrator.cycle_store import find_history, histories
 from codex_orchestrator.design_models import DesignSession
 from codex_orchestrator.github_cli import show_connection
 from codex_orchestrator.github_pr_cli import PRAction, operate
+from codex_orchestrator.run_store import latest_runs
 
 
 def choose(label, options, *, default=None):
@@ -167,6 +168,13 @@ def run(source=None, directory=Path("plans"), *, local=False, timeout=300):
                     elif snapshot.status == "retry_pending" or (
                         snapshot.status == "blocked" and cycle_feedback.pending(state, path)
                     ):
+                        from codex_orchestrator.evidence_recovery import can_reconcile
+
+                        task_run = latest_runs(path, len(state.revisions)).get(snapshot.task_id)
+                        if task_run and can_reconcile(path, task_run):
+                            options.append(
+                                ("Reconcile saved worker evidence (no model call)", "reconcile")
+                            )
                         options.append(("Retry the failed or interrupted assignment", "retry"))
                     else:
                         options.append((f"Continue feature {stage}", "feature"))
@@ -223,10 +231,11 @@ def run(source=None, directory=Path("plans"), *, local=False, timeout=300):
                     ),
                 )
             elif action == "verify":
-                from codex_orchestrator.run_store import latest_runs
-
                 task_run = latest_runs(path, len(state.revisions))[snapshot.task_id]
                 cli.deliver(source, cli.DeliveryAction.verify, stage=stage, run_id=task_run.id)
+            elif action == "reconcile":
+                task_run = latest_runs(path, len(state.revisions))[snapshot.task_id]
+                cli.deliver(source, cli.DeliveryAction.reconcile, stage=stage, run_id=task_run.id)
             elif action == "improve":
                 for task in state.revisions[-1].design.tasks:
                     if task.owned_paths:

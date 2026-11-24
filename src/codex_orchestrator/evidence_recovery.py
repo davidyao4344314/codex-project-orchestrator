@@ -1,4 +1,4 @@
-"""Reconcile a false-negative command match locally, without replaying commands."""
+"""Reconcile supported report-validation false negatives from intact saved observations."""
 
 import json
 import time
@@ -11,12 +11,14 @@ from codex_orchestrator.run_store import Run, latest_runs
 from codex_orchestrator.session import SessionData
 from codex_orchestrator.session_manager import TurnEvents
 from codex_orchestrator.worker_audit import WorkspaceSnapshot, workspace_changes
-from codex_orchestrator.worker_models import WorkerEvidence, artifact_digest
+from codex_orchestrator.worker_models import WorkerEvidence, WorkerResult, artifact_digest
 from codex_orchestrator.worker_results import (
+    CHANGE_MISMATCH,
     handoff_text,
     load_result,
     observe_command,
     reconcile_result,
+    unchanged_retry_paths,
 )
 
 
@@ -25,6 +27,8 @@ class Reconciliation(SessionData):
     original_run: Run
     original_evidence: WorkerEvidence
     reconciled_evidence_digest: str
+    original_report: WorkerResult | None = None
+    reconciled_result_digest: str | None = None
 
 
 def recorded_commands(folder, run):
@@ -52,6 +56,29 @@ def recorded_commands(folder, run):
     ):
         raise ValueError("Saved events do not establish a completed matching Codex turn.")
     return commands
+
+
+def can_reconcile(path, run):
+    """Offer only a local reconciliation candidate; full validation happens on selection."""
+    if run.status != "blocked" or run.agent_branch or run.worker_contract_version != 1:
+        return False
+    try:
+        folder = safe_folder(path, run.id)
+        evidence = WorkerEvidence.load(folder / "worker_evidence.json")
+        report = load_result(folder / "worker_result.json")
+    except (OSError, ValueError):
+        return False
+    allowed = {
+        f"No matching command/exit-code evidence for check {check.check_id}."
+        for check in report.checks
+    }
+    if run.recovery_from:
+        allowed.add(CHANGE_MISMATCH)
+    return (
+        bool(evidence.violations)
+        and report.outcome == "completed"
+        and set(evidence.violations) <= allowed
+    )
 
 
 def reconcile_blocked_run(path: Path, run_id: str) -> Run:
@@ -97,6 +124,9 @@ def reconcile_blocked_run(path: Path, run_id: str) -> Run:
             f"No matching command/exit-code evidence for check {check.check_id}."
             for check in report.checks
         }
+        inherited = unchanged_retry_paths(run, spec, before, after)
+        if inherited:
+            allowed.add(CHANGE_MISMATCH)
         if (
             report.outcome != "completed"
             or not original.violations
@@ -104,7 +134,9 @@ def reconcile_blocked_run(path: Path, run_id: str) -> Run:
             or run.error != "Worker blocked: " + "; ".join(original.violations)
             or sensitive_text(handoff_text(report))
         ):
-            raise ValueError("The worker was blocked for reasons other than command matching.")
+            raise ValueError(
+                "The worker was blocked for reasons other than supported report matching."
+            )
         evidence = workspace_changes(before, after, spec.owned_paths)
         evidence.commands = recorded_commands(folder, run)
         if evidence.commands != original.commands or evidence.changes != original.changes:
@@ -117,9 +149,14 @@ def reconcile_blocked_run(path: Path, run_id: str) -> Run:
         ):
             raise ValueError("Workspace contains unauditable observations.")
         raw = load_result(folder / "result.raw.json")
-        if reconcile_result(spec, raw, evidence) != "completed" or evidence.violations:
+        raw.human_checks = list(dict.fromkeys(spec.human_checks + raw.human_checks))
+        legacy_digest = artifact_digest(raw)
+        if (
+            reconcile_result(spec, raw, evidence, unchanged_paths=inherited) != "completed"
+            or evidence.violations
+        ):
             raise ValueError("Saved observations still do not establish successful checks.")
-        if artifact_digest(raw) != run.worker_result_digest:
+        if run.worker_result_digest not in {legacy_digest, artifact_digest(raw)}:
             raise ValueError("Original report changed.")
         worker_runtime.check_worker_verification(run, project, folder)
         Reconciliation(
@@ -127,8 +164,12 @@ def reconcile_blocked_run(path: Path, run_id: str) -> Run:
             original_run=run,
             original_evidence=original,
             reconciled_evidence_digest=artifact_digest(evidence),
+            original_report=report,
+            reconciled_result_digest=artifact_digest(raw),
         ).save(folder / "evidence_reconciliation.json", new=True)
         evidence.save(folder / "worker_evidence.json")
+        raw.save(folder / "worker_result.json")
+        run.worker_result_digest = artifact_digest(raw)
         run.status = "completed"
         run.error = None
         run.save(folder / "run.json")

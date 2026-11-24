@@ -152,6 +152,46 @@ def test_reconcile_legacy_wrapper_block(approved_session, technical_payload, mon
     assert len(commands) == 1
 
 
+@pytest.mark.parametrize("legacy_blocked", [False, True])
+def test_retry_reuses_existing_audited_files(
+    approved_session, technical_payload, monkeypatch, legacy_blocked
+):
+    from test_persistent_workers import wait
+
+    from codex_orchestrator import worker_runtime
+    from codex_orchestrator.evidence_recovery import can_reconcile, reconcile_blocked_run
+    from codex_orchestrator.worker_results import reconcile_result
+
+    state, path, first, _, commands = launch(
+        approved_session, technical_payload, monkeypatch, "general"
+    )
+    assert first.status == "completed"
+    task = state.revisions[-1].design.tasks[0]
+    with monkeypatch.context() as patch:
+        if legacy_blocked:
+            patch.setattr(
+                worker_runtime,
+                "reconcile_result",
+                lambda spec, report, evidence, **kwargs: reconcile_result(spec, report, evidence),
+            )
+        retry = wait(path, state.project, execution.start_run(state, path, task))
+    assert retry.recovery_from == first.id
+    folder = execution.run_directory(path) / retry.id
+    if legacy_blocked:
+        assert retry.status == "blocked" and can_reconcile(path, retry)
+        recovered = reconcile_blocked_run(path, retry.id)
+        assert recovered.status == "completed" and not recovered.verified
+        assert (folder / "evidence_reconciliation.json").exists()
+    else:
+        assert retry.status == "completed", retry.error
+    assert WorkerResult.load(folder / "worker_result.json").changes == []
+    assert WorkerResult.load(folder / "result.raw.json").changes
+    assert not WorkerEvidence.load(folder / "worker_evidence.json").violations
+    execution.verify_run(path, retry.id, automated=True)
+    assert execution.Run.load(folder / "run.json").verified
+    assert len(commands) == 2
+
+
 @pytest.mark.parametrize(
     "area", ["frontend", "backend", "database", "integration", "general", "verification"]
 )

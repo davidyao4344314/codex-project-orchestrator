@@ -317,6 +317,8 @@ and merge at the existing checkpoints.
 You can inspect usage and history, adjust context file and package budgets, and
 check GitHub connection from the menu. Failure or a declined approval returns to
 saved progress. Explicit retry and recovery remain available when relevant.
+For a compatible blocked worker report, the menu offers local evidence reconciliation
+without calling a model. The saved checks and file hashes must still pass validation.
 Select **Save and exit** or type `:save` at a menu to pause. Opening the menu
 does not launch an AI request; only choosing a planning, implementation or
 review action can do so.
