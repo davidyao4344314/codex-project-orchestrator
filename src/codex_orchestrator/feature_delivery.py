@@ -63,7 +63,7 @@ def advance_tasks(path, stage_id, project, *, retry=False):
 
 
 def feature_tests(state, path, stage, schedule):
-    from codex_orchestrator.worker_models import WorkerResult
+    from codex_orchestrator.worker_models import WorkerResult, WorkerSpec
 
     typer.echo(f"\nFeature: {stage.title}\nProject: {state.project}")
     for item in schedule.tasks:
@@ -79,8 +79,15 @@ def feature_tests(state, path, stage, schedule):
         human_checks = list(task.human_checks)
         if report_path.exists():
             report = WorkerResult.load(report_path)
+            spec_path = folder / "worker_spec.json"
+            planned = (
+                {check.id for check in WorkerSpec.load(spec_path).checks}
+                if spec_path.exists()
+                else {check.check_id for check in report.checks}
+            )
             for check in report.checks:
-                typer.echo(f"  Automated check {check.check_id}: {check.outcome} — {check.detail}")
+                label = "Automated check" if check.check_id in planned else "Supplemental check"
+                typer.echo(f"  {label} {check.check_id}: {check.outcome} — {check.detail}")
             human_checks.extend(report.human_checks)
         for check in dict.fromkeys(human_checks):
             typer.echo(f"  User check: {check}")

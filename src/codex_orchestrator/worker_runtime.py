@@ -10,7 +10,12 @@ from codex_orchestrator.wire_context import worker_context
 from codex_orchestrator.worker_audit import WorkspaceSnapshot, snapshot_workspace, workspace_changes
 from codex_orchestrator.worker_models import WorkerResult, WorkerSpec, artifact_digest
 from codex_orchestrator.worker_profiles import validate_owned_paths, worker_spec
-from codex_orchestrator.worker_results import handoff_text, load_result, reconcile_result
+from codex_orchestrator.worker_results import (
+    handoff_text,
+    load_result,
+    reconcile_result,
+    unchanged_retry_paths,
+)
 
 MAX_WORKER_PROMPT_BYTES = 64 * 1024
 
@@ -113,12 +118,14 @@ WORKER_INSTRUCTIONS = (
     "Do not switch branches, commit, merge, push, deploy, delete user data, read or modify "
     "credentials/private keys/auth caches, spawn agents or use external integrations. "
     "Return WorkerResult JSON matching the schema: copy task_id, agent_id, profile and "
-    "context_digest from worker_spec, list only observed owned-file changes, and run every "
+    "context_digest from worker_spec, list only net owned-file changes made during this attempt "
+    "(use an empty changes list if retrying existing files without editing them), and run every "
     "specified check. Use focused checks during edits; run required regression checks at the "
     "appropriate gate. For pytest prefer quiet output and --tb=line; retain full diagnostics "
     "locally when necessary and inspect specific failing tests. Stop promptly when a failure "
     "requires changes outside ownership. Report exact check IDs, submitted command body "
     "or recorded wrapper, actual outcomes and details; use not_run with a reason when necessary. "
+    "Report optional extra checks with unique supplemental IDs and observed command evidence; "
     "Keep human checks for the user. Only report completed if all required checks passed "
     "with no blockers. "
     "Otherwise report blocked/failed. Give a short factual handoff with relevant interfaces, "
@@ -209,7 +216,9 @@ def finalize_worker(run, spec, before, project, folder, commands):
         if run.status != "completed":
             return
         report = load_result(folder / "result.raw.json")
-        run.status = reconcile_result(spec, report, evidence)
+        run.status = reconcile_result(
+            spec, report, evidence, unchanged_paths=unchanged_retry_paths(run, spec, before, after)
+        )
         if run.status == "blocked":
             run.error = "Worker blocked: " + "; ".join(report.blockers + evidence.violations)
         elif run.status == "failed":

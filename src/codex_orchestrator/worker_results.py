@@ -6,6 +6,28 @@ from pathlib import Path
 from codex_orchestrator.worker_models import CommandEvidence, WorkerResult
 
 MAX_RESULT_BYTES = 256 * 1024
+CHANGE_MISMATCH = "Reported changes do not match observed changed files."
+
+
+def unchanged_retry_paths(run, spec, before, after):
+    """Only inherited, auditable owned files may be omitted from a retry's net changes."""
+    if not run.recovery_from:
+        return set()
+    unchanged = set()
+    for name in spec.owned_paths:
+        old, new = before.files.get(name), after.files.get(name)
+        if (
+            old is not None
+            and new is not None
+            and old.exists
+            and new.exists
+            and old.sha256
+            and old.sha256 == new.sha256
+            and not old.marker
+            and not new.marker
+        ):
+            unchanged.add(name)
+    return unchanged
 
 
 def commands_match(reported: str | None, observed: str) -> bool:
@@ -56,7 +78,7 @@ def load_result(path):
     return WorkerResult.model_validate_json(raw)
 
 
-def reconcile_result(spec, report, evidence):
+def reconcile_result(spec, report, evidence, *, unchanged_paths=()):
     if (report.task_id, report.agent_id, report.profile, report.context_digest) != (
         spec.task_id,
         spec.agent_id,
@@ -68,12 +90,30 @@ def reconcile_result(spec, report, evidence):
         )
     required_ids = {check.id for check in spec.checks}
     actual_ids = [check.check_id for check in report.checks]
-    if set(actual_ids) != required_ids or len(actual_ids) != len(required_ids):
+    if not required_ids <= set(actual_ids) or len(set(actual_ids)) != len(actual_ids):
         raise ValueError("Worker must report every planned automated check exactly once.")
+    supplemental = sorted(set(actual_ids) - required_ids)
+    if supplemental:
+        warning = "Supplemental checks outside the approved test list: " + ", ".join(supplemental)
+        if warning not in evidence.warnings:
+            evidence.warnings.append(warning)
     reported_paths = [str(Path(c.path)) for c in report.changes]
     observed_paths = {c.path for c in evidence.changes}
-    if len(set(reported_paths)) != len(reported_paths) or set(reported_paths) != observed_paths:
-        evidence.violations.append("Reported changes do not match observed changed files.")
+    reported = set(reported_paths)
+    inherited = reported - observed_paths
+    if (
+        len(reported) != len(reported_paths)
+        or not observed_paths <= reported
+        or not inherited <= (set(unchanged_paths) & set(spec.owned_paths))
+    ):
+        evidence.violations.append(CHANGE_MISMATCH)
+    elif inherited:
+        evidence.warnings.append(
+            "Retry reported unchanged owned files as existing work: " + ", ".join(sorted(inherited))
+        )
+        report.changes = [
+            change for change in report.changes if str(Path(change.path)) in observed_paths
+        ]
     for path in reported_paths:
         if path not in spec.owned_paths:
             evidence.violations.append(f"Reported change is outside assigned ownership: {path}")

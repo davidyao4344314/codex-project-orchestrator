@@ -9,6 +9,7 @@ from codex_orchestrator.run_store import Run
 from codex_orchestrator.worker_audit import FileState, WorkspaceSnapshot
 from codex_orchestrator.worker_models import (
     CommandEvidence,
+    ObservedChange,
     ReportedChange,
     ReportedCheck,
     RequiredCheck,
@@ -16,7 +17,11 @@ from codex_orchestrator.worker_models import (
     WorkerResult,
     WorkerSpec,
 )
-from codex_orchestrator.worker_results import commands_match, reconcile_result
+from codex_orchestrator.worker_results import (
+    commands_match,
+    reconcile_result,
+    unchanged_retry_paths,
+)
 
 
 def digest(value):
@@ -91,6 +96,67 @@ def test_literal_codex_wrapper_matches_multiline_command():
     assert evidence.check_matches == {"C1": "actual"}
     evidence.commands.append(CommandEvidence(event_id="last", exit_code=1, command=observed))
     assert reconcile_result(spec, result(spec, command), evidence) == "blocked"
+
+
+def test_supplemental_checks_require_observed_success_and_unique_ids():
+    spec = contract()
+    report = result(spec)
+    report.checks.append(
+        ReportedCheck(check_id="extra", command="ruff check", outcome="passed", detail="Lint")
+    )
+    evidence = WorkerEvidence(
+        commands=[
+            CommandEvidence(event_id="required", exit_code=0, command="python -c pass"),
+            CommandEvidence(event_id="supplemental", exit_code=0, command="ruff check"),
+        ]
+    )
+    assert reconcile_result(spec, report, evidence) == "completed"
+    assert evidence.check_matches == {"C1": "required", "extra": "supplemental"}
+    assert "extra" in evidence.warnings[0]
+    unobserved = WorkerEvidence(commands=evidence.commands[:1])
+    assert reconcile_result(spec, report, unobserved) == "blocked"
+    report.checks.append(report.checks[-1])
+    with pytest.raises(ValueError, match="exactly once"):
+        reconcile_result(spec, report, evidence)
+    report.checks = report.checks[1:2]
+    with pytest.raises(ValueError, match="exactly once"):
+        reconcile_result(spec, report, evidence)
+
+
+def test_retry_can_normalize_only_observed_unchanged_owned_files():
+    spec = contract()
+    report = result(spec)
+    report.changes = [ReportedChange(path="app.py", description="Existing implementation")]
+    before = WorkspaceSnapshot(
+        mode="owned_paths_only", head=None, files={"app.py": FileState(exists=True, sha256="same")}
+    )
+    after = before.model_copy(deep=True)
+    run = Run(
+        id="retry",
+        task_id="task",
+        agent_id="agent",
+        revision=1,
+        prompt="prompt",
+        recovery_from="prior",
+    )
+    evidence = WorkerEvidence(
+        commands=[CommandEvidence(event_id="check", exit_code=0, command="python -c pass")]
+    )
+    assert (
+        reconcile_result(
+            spec, report, evidence, unchanged_paths=unchanged_retry_paths(run, spec, before, after)
+        )
+        == "completed"
+    )
+    assert report.changes == [] and "unchanged owned files" in evidence.warnings[0]
+    report.changes = [ReportedChange(path="app.py", description="Existing implementation")]
+    assert reconcile_result(spec, report, WorkerEvidence(commands=evidence.commands)) == "blocked"
+    report.changes = []
+    missing = WorkerEvidence(
+        commands=evidence.commands,
+        changes=[ObservedChange(path="app.py", before_sha256="same", after_sha256="different")],
+    )
+    assert reconcile_result(spec, report, missing, unchanged_paths={"app.py"}) == "blocked"
 
 
 def test_post_run_unreadable_owned_file_cannot_complete(tmp_path, monkeypatch):
