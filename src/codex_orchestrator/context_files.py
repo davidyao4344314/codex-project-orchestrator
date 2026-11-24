@@ -24,7 +24,16 @@ _PRIVATE_NAMES = {
     "id_rsa",
     "id_ed25519",
 }
-_PRIVATE_DIRS = {".git", ".ssh", ".aws", ".azure", ".gcloud", ".venv", "node_modules"}
+_PRIVATE_DIRS = {
+    ".git",
+    ".ssh",
+    ".aws",
+    ".azure",
+    ".gcloud",
+    ".venv",
+    "node_modules",
+    "terminal-logs",
+}
 
 
 def sensitive_text(text: str) -> bool:

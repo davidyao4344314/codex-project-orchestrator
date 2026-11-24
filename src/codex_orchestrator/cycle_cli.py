@@ -2,6 +2,7 @@
 
 import json
 import time
+from contextlib import nullcontext
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -37,14 +38,20 @@ def start(
     directory: Path = Path("plans"),
     local: bool = typer.Option(False, "--local"),
     timeout: int = typer.Option(300, min=1),
+    record: bool = typer.Option(False, "--record", help="Record terminal output locally"),
 ):
     """Guide a project from saved planning through delivery and the next cycle."""
     from codex_orchestrator.cycle_navigation import run
+    from codex_orchestrator.terminal_recording import record_terminal
 
     try:
-        run(source, directory, local=local, timeout=timeout)
-    except (KeyboardInterrupt, typer.Abort):
-        typer.echo("Progress saved. Run cycle start again to resume.")
+        with record_terminal(directory) if record else nullcontext():
+            try:
+                run(source, directory, local=local, timeout=timeout)
+            except (KeyboardInterrupt, typer.Abort):
+                typer.echo("Progress saved. Run cycle start again to resume.")
+            except (OSError, ValueError, CodexError) as exc:
+                fail(exc)
     except (OSError, ValueError, CodexError) as exc:
         fail(exc)
 
