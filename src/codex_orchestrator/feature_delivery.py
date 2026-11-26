@@ -72,6 +72,8 @@ def feature_tests(state, path, stage, schedule):
         typer.echo("Files: " + ", ".join(task.owned_paths))
         folder = run_directory(path) / item.run_id
         run = Run.load(folder / "run.json")
+        if run.workspace_after_digest:
+            typer.echo(f"  Audited working-tree snapshot SHA-256: {run.workspace_after_digest}")
         if run.agent_branch:
             typer.echo(f"  Agent branch: {run.agent_branch}")
             typer.echo(f"  Integrated draft: {run.agent_commit or 'not integrated'}")

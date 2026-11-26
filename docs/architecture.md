@@ -81,6 +81,13 @@ dependencies, and compares the last observed state with the current source. A ne
 before/spec/after hashes are included in publication evidence. Intervening external edits
 and stale final outputs require re-verification.
 
+Verification uses the combined working tree before publication. The worker reports actual
+checks and the orchestrator records the audited snapshot SHA-256; Git HEAD is the base
+commit until independent review and user publication approval. Existing approved plans
+that refer to a tested commit or candidate SHA use the same working-tree evidence without
+changing their required check IDs or scope. Publication revalidates the audited files
+and checks the committed Git tree against the prepared index.
+
 ## Remaining boundaries
 
 - Execution is a single-writer local prototype. Owned paths and prohibitions on commits or

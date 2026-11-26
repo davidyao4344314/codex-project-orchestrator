@@ -863,7 +863,7 @@ A missing or unverified skill remains a setup item.
 
 Each delivery stage has a verification gate. It specifies agent checks with expected results,
 required user tests, acceptance criteria, review and failure owners, and completion evidence.
-The merge policy calls for actual check commands/results against the tested commit, review of
+The merge policy calls for actual check commands/results against the audited working tree, review of
 the combined stage changes, and any required user acceptance before merging. Dependent stages
 are described by the plan as starting after verified merges. The initial runner enforces
 accepted prerequisite verification; merge evidence still needs human review. Stage 2 approval

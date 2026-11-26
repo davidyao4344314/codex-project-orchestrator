@@ -95,6 +95,7 @@ def review_payload(path: Path, reviewed: git.GitPreview) -> str:
                 commands=commands,
                 warnings=evidence.warnings,
                 violations=evidence.violations,
+                workspace_after_digest=run.workspace_after_digest,
                 **(
                     {"agent_branch": run.agent_branch, "agent_commit": run.agent_commit}
                     if run.agent_branch
@@ -193,6 +194,10 @@ def run_review(
             "not the implementation worker. Inspect actual source, requirements, interfaces, "
             "scope, correctness, regressions and test adequacy; do not trust pass claims alone. "
             "Review selected files in the context of the whole stage. "
+            "This is the audited working-tree candidate, before publication. The head field "
+            "is the base commit and the after-snapshot digests identify audited test inputs "
+            "and outputs. Legacy references to a tested commit or candidate SHA refer to this "
+            "candidate; lack of a publication commit is not a review blocker. "
             "Assignment requirements are R1-style references into the approved brief; "
             "agent, component and interface IDs resolve in shared_context. "
             "Changed tracked files have their full diff and current hash; read the exact "

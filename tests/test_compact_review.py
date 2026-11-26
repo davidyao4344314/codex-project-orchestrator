@@ -24,6 +24,7 @@ def test_review_payload_retains_untracked_source_and_shared_contracts(accepted):
     assert data["files"]["counter.py"]["text"] == "print(5)\n"
     assert "remote" not in data
     assert data["assignments"][0]["commands"][0]["exit_code"] == 0
+    assert data["assignments"][0]["workspace_after_digest"]
 
 
 def test_changed_manual_evidence_changes_review_identity(accepted):

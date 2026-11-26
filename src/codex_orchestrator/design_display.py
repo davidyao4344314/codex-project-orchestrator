@@ -191,9 +191,9 @@ def show_design(state: DesignSession) -> None:
             )
             lines("    Completion evidence to report", stage.gate.required_evidence)
             typer.echo(
-                "    Merge requires the tested commit, actual check commands/results, "
-                "stage review, "
-                "and all required user checks. Changed commits require fresh verification."
+                "    Verify the combined working tree using recorded commands and audited file "
+                "hashes. Review and user approval precede the publication commit. "
+                "Changes to audited files require fresh verification."
             )
         stage_order.done(*ready)
     lines("\nRequired context blockers", context_blockers(design, project))
