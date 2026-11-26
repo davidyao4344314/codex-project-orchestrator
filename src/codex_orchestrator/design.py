@@ -14,6 +14,7 @@ from codex_orchestrator.design_models import (
     source_digest,
 )
 from codex_orchestrator.design_validation import (
+    PRECOMMIT_VERIFICATION,
     assign_stage_checks,
     context_blockers,
     validate_design,
@@ -37,7 +38,7 @@ ARCHITECT_INSTRUCTIONS = (
     "Divide complex work into independently verifiable delivery stages. Each stage must include "
     "agent checks with expected outcomes, acceptance criteria, any required user tests, review and "
     "failure owners, and evidence needed before merging. All checks are proposed, not completed. "
-    "The merge gate requires checks on the combined stage changes and the tested commit, "
+    "The merge gate requires checks on the audited combined stage changes, "
     "including regressions, review, and required user acceptance. Dependent stages wait for it. "
     "Automatically assess the job before assigning agents: evaluate task difficulty, uncertainty, "
     "dependencies, required specialties, context size, and verification effort. "
@@ -288,6 +289,8 @@ def _generate_design(state, output, timeout, data, turn):
             + " "
             + FOCUSED_EXPLORATION
             + instructions
+            + " "
+            + PRECOMMIT_VERIFICATION
             + " Keep descriptions and rationale concise; avoid repeating requirements and "
             "checks in multiple fields. Preserve all required verification and ownership detail.",
             data,

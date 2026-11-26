@@ -46,6 +46,21 @@ def test_compact_payload_preserves_required_contract_and_keeps_local_snapshot(co
     assert len(prompt.encode()) < baseline and reused == 0
 
 
+def test_legacy_commit_check_uses_working_tree_without_changing_approved_task(context_design):
+    state, path = context_design
+    task = state.revisions[-1].design.tasks[0]
+    task.automated_checks = ["Run pytest on the tested candidate SHA."]
+    package = build_context(state, task, path)
+    spec = worker_spec(package)
+    prompt, _, _ = compact_worker_prompt(spec, package, [])
+    assert "do not block merely because a candidate commit does not exist" in prompt
+    assert "Do not claim a working-tree test ran on a commit" in prompt
+    assert payload(prompt)["worker_spec"]["checks"] == [
+        {"id": "C1", "description": "Run pytest on the tested candidate SHA."}
+    ]
+    assert task.automated_checks == ["Run pytest on the tested candidate SHA."]
+
+
 @pytest.mark.parametrize("change", [False, True])
 def test_real_worker_resumes_only_unchanged_selected_file(
     approved_session, technical_payload, monkeypatch, change

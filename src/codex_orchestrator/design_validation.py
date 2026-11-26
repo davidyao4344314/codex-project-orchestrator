@@ -7,6 +7,14 @@ from codex_orchestrator.codex import CodexError
 from codex_orchestrator.design_models import TechnicalDesign
 from codex_orchestrator.session import Brief
 
+PRECOMMIT_VERIFICATION = (
+    "Plan automated and user checks against the combined working tree before publication. "
+    "The orchestrator records commands and audited file hashes and validates them at review "
+    "and publication. Git HEAD identifies the base at this point. "
+    "The publication commit is created only after independent review and user approval. "
+    "Never require a candidate Git commit or commit SHA before those checks or approval."
+)
+
 
 def ancestors(graph: dict[str, set[str]]) -> dict[str, set[str]]:
     try:

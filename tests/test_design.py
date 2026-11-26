@@ -36,6 +36,7 @@ def test_design_command_bound_to_approved_source(approved_session, technical_pay
     assert state.revisions[0].agent_models == {"developer": None}
     assert calls[0][0] == source_path.parent
     assert "Website" in calls[0][1]
+    assert "Never require a candidate Git commit or commit SHA" in calls[0][1]
     assert calls[0][2] == "architect-model"
     # Reopening a finished draft needs no additional model call.
     assert runner.invoke(app, ["design", str(source_path), "-o", str(output)]).exit_code == 0
@@ -101,7 +102,7 @@ def test_complete_review_allocation_revision_and_approval(
         "Escalate when",
         "Verification gate",
         "Required user tests before merge",
-        "Merge requires the tested commit",
+        "Verify the combined working tree using recorded commands",
         "Selected model: worker-model",
         "Approved technical-design revision 2",
     ):
